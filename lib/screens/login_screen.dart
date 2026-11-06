@@ -95,13 +95,13 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           children: [
             const SizedBox(height: 80),
-            const Icon(
-              Icons.sports_soccer,
-              size: 100,
-              color: Color(0xFF1B5E20),
+            Image.asset(
+              'assets/images/arenasports_icon.png',
+              width: 120,
+              height: 120,
             ),
             const Text(
-              'SPORTS FIELD RENTAL',
+              'ARENASPORTS',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 24,
