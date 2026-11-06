@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:penyewaan_lapangan/services/api_service.dart';
+import '../utils/auth_guard.dart';
 
 class PointScreen extends StatefulWidget {
   const PointScreen({super.key});
@@ -11,17 +12,68 @@ class PointScreen extends StatefulWidget {
 }
 
 class _PointScreenState extends State<PointScreen> {
+  static const List<Map<String, dynamic>> _guestRewards = [
+    {'id': 1, 'name': 'Voucher Booking Rp25.000', 'points': 100},
+    {'id': 2, 'name': 'Diskon Booking 10%', 'points': 50},
+    {'id': 3, 'name': 'Minuman Gratis', 'points': 25},
+  ];
+
   final ApiService _apiService = ApiService();
   int _userPoints = 0;
+  bool _isGuest = true;
+  String? _pointsError;
   List<dynamic> _rewards = [];
+  String? _rewardsError;
   bool _isLoadingRewards = true;
   bool _isProcessingRedeem = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserPoints();
-    _fetchRewardsFromApi();
+    _initializeScreen();
+  }
+
+  Future<void> _initializeScreen() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final isGuest = token == null || token.isEmpty;
+
+    if (!mounted) return;
+    if (!isGuest && prefs.getString('auth_mode') == 'local') {
+      final rawUser = prefs.getString('user');
+      final user = rawUser == null
+          ? <String, dynamic>{}
+          : jsonDecode(rawUser) as Map<String, dynamic>;
+      setState(() {
+        _isGuest = false;
+        _userPoints = (user['points'] as num?)?.toInt() ?? 0;
+        _pointsError = null;
+        _rewards = _guestRewards;
+        _isLoadingRewards = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isGuest = isGuest;
+      if (isGuest) {
+        _pointsError = 'Login untuk melihat poin akun.';
+        _rewards = _guestRewards;
+        _isLoadingRewards = false;
+      }
+    });
+
+    if (!isGuest) {
+      await Future.wait([_loadUserPoints(), _fetchRewardsFromApi()]);
+    }
+  }
+
+  Future<void> _refreshPage() async {
+    setState(() {
+      _isLoadingRewards = true;
+      _rewardsError = null;
+    });
+    await _initializeScreen();
   }
 
   // 1. Ambil poin user dari lokal data pencatatan login
@@ -31,11 +83,17 @@ class _PointScreenState extends State<PointScreen> {
 
     if (result == null) {
       print("User API null");
+      if (mounted) {
+        setState(() {
+          _pointsError = 'Login dengan akun untuk melihat poin.';
+        });
+      }
       return;
     }
 
     setState(() {
       _userPoints = result['points'] ?? 0;
+      _pointsError = null;
     });
 
     final prefs = await SharedPreferences.getInstance();
@@ -49,25 +107,40 @@ class _PointScreenState extends State<PointScreen> {
   Future<void> _fetchRewardsFromApi() async {
     try {
       final result = await _apiService.getRewards(); 
-      if (result['status'] == true) {
-        setState(() {
-          // Memastikan mengambil data reward yang statusnya 'Aktif' saja
-          _rewards = result['data'] ?? [];
-          _isLoadingRewards = false;
-        });
-      } else {
-        _showSnackBar("Gagal memuat daftar reward", Colors.red);
-        setState(() => _isLoadingRewards = false);
-      }
+      if (!mounted) return;
+      setState(() {
+        final success = result['status'] == true;
+        _rewards = success ? result['data'] ?? [] : [];
+        _rewardsError = success
+            ? null
+            : result['message']?.toString() ?? 'Gagal memuat daftar reward.';
+        _isLoadingRewards = false;
+      });
     } catch (e) {
       print("Error fetch rewards: $e");
-      _showSnackBar("Gagal terhubung ke server admin", Colors.red);
-      setState(() => _isLoadingRewards = false);
+      if (!mounted) return;
+      setState(() {
+        _rewardsError = 'Gagal memuat reward: $e';
+        _isLoadingRewards = false;
+      });
     }
+  }
+
+  void _retryRewards() {
+    setState(() {
+      _isLoadingRewards = true;
+      _rewardsError = null;
+    });
+    _fetchRewardsFromApi();
   }
 
   // 3. Proses penukaran poin & memunculkan Bukti Klaim (Kode Redeem/QR)
   Future<void> _handleRedeem(int rewardId, int pointsCost, String rewardName) async {
+    final isAuthenticated = await requireAuthenticatedUser(
+      context,
+      message: 'Login terlebih dahulu untuk menukar reward.',
+    );
+    if (!mounted || !isAuthenticated) return;
     setState(() => _isProcessingRedeem = true);
     
     try {
@@ -181,9 +254,13 @@ class _PointScreenState extends State<PointScreen> {
         elevation: 0,
         leading: const BackButton(color: Colors.black),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+      body: RefreshIndicator(
+        onRefresh: _refreshPage,
+        color: const Color(0xFF00A32A),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
           children: [
             // Card Poin Dinamis Atas
             Container(
@@ -217,6 +294,14 @@ class _PointScreenState extends State<PointScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  if (_pointsError != null) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      _pointsError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
                   const SizedBox(height: 5),
                   const Text(
                     "Tukarkan dengan voucher di bawah sebelum hangus!",
@@ -243,6 +328,17 @@ class _PointScreenState extends State<PointScreen> {
                       child: CircularProgressIndicator(color: Color(0xFF00A32A)),
                     ),
                   )
+                : _rewardsError != null
+                    ? Column(
+                        children: [
+                          Text(_rewardsError!, textAlign: TextAlign.center),
+                          TextButton.icon(
+                            onPressed: _retryRewards,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Coba Lagi'),
+                          ),
+                        ],
+                      )
                 : _rewards.isEmpty
                     ? const Center(
                         child: Text("Tidak ada reward aktif saat ini."),
@@ -265,6 +361,7 @@ class _PointScreenState extends State<PointScreen> {
                         },
                       ),
           ],
+          ),
         ),
       ),
     );
@@ -276,7 +373,7 @@ class _PointScreenState extends State<PointScreen> {
     required int costValue,
     String? imagePath,
   }) {
-    bool canRedeem = _userPoints >= costValue;
+    final canRedeem = _isGuest || _userPoints >= costValue;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -304,7 +401,7 @@ class _PointScreenState extends State<PointScreen> {
           ),
         ),
         trailing: ElevatedButton(
-          onPressed: (canRedeem && !_isProcessingRedeem)
+            onPressed: (canRedeem && !_isProcessingRedeem)
               ? () => _handleRedeem(id, costValue, title)
               : null,
           style: ElevatedButton.styleFrom(

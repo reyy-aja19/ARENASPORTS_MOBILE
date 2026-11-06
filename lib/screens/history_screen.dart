@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import '../services/local_app_data_service.dart';
+import '../widgets/guest_access_overlay.dart';
 import 'create_match_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -13,47 +13,41 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   late Future<List<dynamic>> _historyFuture;
+  bool _isGuest = true;
+  bool _isCheckingSession = true;
 
   @override
   void initState() {
     super.initState();
-    _historyFuture = _fetchBookingHistory();
+    _historyFuture = Future.value([]);
+    _loadSession();
   }
 
-  @override
-  void didUpdateWidget(covariant HistoryScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _refreshData();
-  }
+  Future<void> _loadSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final isGuest = token == null || token.isEmpty;
 
-  Future<List<dynamic>> _fetchBookingHistory() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-
-      final response = await http.get(
-        Uri.parse('https://sportsfield.my.id/api/bookings'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        },
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (data is Map && data.containsKey('data')) {
-        return data['data'];
+    if (!mounted) return;
+    setState(() {
+      _isGuest = isGuest;
+      _isCheckingSession = false;
+      if (!isGuest) {
+        _historyFuture = LocalAppDataService.getBookingHistory(
+          prefs.getInt('user_id') ?? 0,
+        );
       }
-
-      return data;
-    } catch (e) {
-      throw Exception("Error: $e");
-    }
+    });
   }
 
   void _refreshData() {
+    if (_isGuest) return;
     setState(() {
-      _historyFuture = _fetchBookingHistory();
+      _historyFuture = SharedPreferences.getInstance().then((prefs) {
+        return LocalAppDataService.getBookingHistory(
+          prefs.getInt('user_id') ?? 0,
+        );
+      });
     });
   }
 
@@ -69,7 +63,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           foregroundColor: Colors.black,
           actions: [
             IconButton(
-              onPressed: _refreshData,
+              onPressed: _isGuest ? null : _refreshData,
               icon: const Icon(Icons.refresh),
             ),
           ],
@@ -83,9 +77,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ],
           ),
         ),
-        body: FutureBuilder<List<dynamic>>(
-          future: _historyFuture,
-          builder: (context, snapshot) {
+        body: _isCheckingSession
+            ? const Center(child: CircularProgressIndicator())
+            : GuestAccessOverlay(
+                isGuest: _isGuest,
+                message: 'Login untuk melihat riwayat sewa.',
+                child: FutureBuilder<List<dynamic>>(
+                  future: _historyFuture,
+                  builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -116,8 +115,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 _buildList(done),
               ],
             );
-          },
-        ),
+                  },
+                ),
+              ),
       ),
     );
   }

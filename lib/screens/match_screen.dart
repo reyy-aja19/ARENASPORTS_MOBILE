@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
 import '../models/match_model.dart';
 import '../services/match_api.dart';
+import '../widgets/guest_access_overlay.dart';
 import 'chat_screen.dart'; // FIX: Impor halaman chat baru agar bisa dipanggil
 
 class MatchScreen extends StatefulWidget {
@@ -13,24 +15,31 @@ class MatchScreen extends StatefulWidget {
 
 class _MatchScreenState extends State<MatchScreen> {
   late Future<List<MatchModel>> futureMatches;
-  String? userToken;
+  bool _isGuest = true;
+  bool _isCheckingSession = true;
 
   @override
   void initState() {
     super.initState();
-    _checkAuthAndFetch();
+    futureMatches = Future.value([]);
+    _loadSession();
   }
 
-  // Cek token dulu sebelum fetch data
-  Future<void> _checkAuthAndFetch() async {
+  Future<void> _loadSession() async {
     final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    final isGuest = token == null || token.isEmpty;
+
+    if (!mounted) return;
     setState(() {
-      userToken = prefs.getString('token');
-      futureMatches = MatchApi.fetchMatches();
+      _isGuest = isGuest;
+      _isCheckingSession = false;
+      if (!isGuest) futureMatches = MatchApi.fetchMatches();
     });
   }
 
   void _refreshData() {
+    if (_isGuest) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     setState(() {
       futureMatches = MatchApi.fetchMatches();
@@ -92,13 +101,18 @@ class _MatchScreenState extends State<MatchScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF00A32A)),
-            onPressed: _refreshData,
+            onPressed: _isGuest ? null : _refreshData,
           ),
         ],
       ),
-      body: FutureBuilder<List<MatchModel>>(
-        future: futureMatches,
-        builder: (context, snapshot) {
+      body: _isCheckingSession
+          ? const Center(child: CircularProgressIndicator())
+          : GuestAccessOverlay(
+              isGuest: _isGuest,
+              message: 'Login untuk melihat dan bergabung ke Open Match.',
+              child: FutureBuilder<List<MatchModel>>(
+                future: futureMatches,
+                builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(color: Color(0xFF00A32A)),
@@ -124,8 +138,11 @@ class _MatchScreenState extends State<MatchScreen> {
 
           final matches = snapshot.data ?? [];
           if (matches.isEmpty) {
-            return const Center(
-              child: Text("Belum ada yang buka match nih, coy!"),
+            return Center(
+              child: Text(
+                'Belum ada yang buka match nih, coy!',
+                textAlign: TextAlign.center,
+              ),
             );
           }
 
@@ -139,8 +156,9 @@ class _MatchScreenState extends State<MatchScreen> {
               },
             ),
           );
-        },
-      ),
+                },
+              ),
+            ),
     );
   }
 

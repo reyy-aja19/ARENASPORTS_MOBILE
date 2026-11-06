@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:penyewaan_lapangan/services/api_service.dart';
+import '../utils/auth_guard.dart';
 import 'checkout_screen.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -74,6 +75,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     }
   }
 }
+
+  Future<void> _continueToCheckout() async {
+    if (!await requireAuthenticatedUser(context) || !mounted) return;
+
+    final hargaSatuan = int.parse(
+      widget.hargaLapangan.replaceAll(RegExp(r'[^0-9]'), ''),
+    );
+    final totalHarga = hargaSatuan * _selectedTimes.length;
+    final hargaFinal =
+        "Rp ${totalHarga.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}";
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CheckoutScreen(
+          lapanganId: widget.id,
+          namaLapangan: widget.namaLapangan,
+          tanggal: DateFormat('yyyy-MM-dd').format(selectedDate),
+          jam: _selectedTimes.join(', '),
+          harga: hargaFinal,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -258,28 +283,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             child: ElevatedButton(
               onPressed: _selectedTimes.isEmpty
                   ? null
-                  : () {
-                      int hargaSatuan = int.parse(
-                        widget.hargaLapangan.replaceAll(RegExp(r'[^0-9]'), ''),
-                      );
-                      int totalHarga = hargaSatuan * _selectedTimes.length;
-
-                      String hargaFinal =
-                          "Rp ${totalHarga.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}";
-
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => CheckoutScreen(
-                            lapanganId: widget.id,
-                            namaLapangan: widget.namaLapangan,
-                            tanggal: DateFormat('yyyy-MM-dd').format(selectedDate),
-                            jam: _selectedTimes.join(", "),
-                            harga: hargaFinal,
-                          ),
-                        ),
-                      );
-                    },
+                  : _continueToCheckout,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00A32A),
                 minimumSize: const Size(double.infinity, 55),

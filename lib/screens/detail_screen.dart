@@ -1,33 +1,82 @@
 import 'package:flutter/material.dart';
-import 'package:penyewaan_lapangan/models/field_model.dart'; // Pastikan path import benar
+import 'package:penyewaan_lapangan/models/field_model.dart';
 import 'schedule_screen.dart';
 
-class DetailScreen extends StatelessWidget {
+class DetailScreen extends StatefulWidget {
   final FieldModel field;
 
   const DetailScreen({super.key, required this.field});
 
   @override
+  State<DetailScreen> createState() => _DetailScreenState();
+}
+
+class _DetailScreenState extends State<DetailScreen> {
+  late final PageController _pageController;
+  int _currentPage = 0;
+
+  List<String> get galleryImages {
+    final images = <String>[];
+    for (final item in widget.field.galleryImages) {
+      if (item.trim().isNotEmpty) images.add(item);
+    }
+    if (images.isEmpty && widget.field.imageUrl != null && widget.field.imageUrl!.trim().isNotEmpty) {
+      images.add(widget.field.imageUrl!);
+    }
+    return images;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final images = galleryImages;
+    final activeImageCount = images.isEmpty ? 1 : images.length;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- GAMBAR HEADER ---
           Stack(
             children: [
               SizedBox(
                 height: 250,
                 width: double.infinity,
-                child: Image.network(
-                  field.imageUrl ?? "",
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, e, s) => Container(
-                    color: Colors.blueGrey[200],
-                    child: const Icon(Icons.image, size: 50),
-                  ),
-                ),
+                child: images.isEmpty
+                    ? Container(
+                        color: Colors.blueGrey[200],
+                        child: const Icon(Icons.sports_soccer, size: 50),
+                      )
+                    : PageView.builder(
+                        controller: _pageController,
+                        itemCount: images.length,
+                        onPageChanged: (index) {
+                          setState(() {
+                            _currentPage = index;
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          return Image.network(
+                            images[index],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: Colors.blueGrey[200],
+                              child: const Icon(Icons.image, size: 50),
+                            ),
+                          );
+                        },
+                      ),
               ),
               Positioned(
                 top: 40,
@@ -41,25 +90,26 @@ class DetailScreen extends StatelessWidget {
                 bottom: 10,
                 right: 15,
                 child: Container(
-                  padding: const EdgeInsets.all(5),
-                  color: Colors.black54,
-                  child: const Text(
-                    "1/3",
-                    style: TextStyle(color: Colors.white, fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${_currentPage + 1}/$activeImageCount',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ),
               ),
             ],
           ),
-
-          // --- INFO TEKS ---
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  field.name,
+                  widget.field.name,
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -67,38 +117,32 @@ class DetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Row(
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 20),
-                    const Text(" 4.5 Rating • Kab. Indramayu"),
+                  children: const [
+                    Icon(Icons.star, color: Colors.amber, size: 20),
+                    Text(' 4.5 Rating • Kab. Indramayu'),
                   ],
                 ),
                 const Divider(height: 30),
-                
-                // --- BAGIAN FASILITAS DINAMIS LARAVEL ---
                 const Text(
-                  "Fasilitas",
+                  'Fasilitas',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 10),
-                _buildDynamicFacilities(), // Memanggil widget fasilitas dinamis
-                
+                _buildDynamicFacilities(),
                 const SizedBox(height: 20),
                 const Text(
-                  "Deskripsi",
+                  'Deskripsi',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  field.description ?? "Tidak ada deskripsi untuk lapangan ini.",
+                  widget.field.description ?? 'Tidak ada deskripsi untuk lapangan ini.',
                   style: const TextStyle(color: Colors.grey),
                 ),
               ],
             ),
           ),
-
           const Spacer(),
-
-          // --- BOTTOM BAR ---
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -115,11 +159,11 @@ class DetailScreen extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      "Mulai dari",
+                      'Mulai dari',
                       style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                     Text(
-                      "Rp ${field.price}",
+                      'Rp ${widget.field.price}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
@@ -134,9 +178,9 @@ class DetailScreen extends StatelessWidget {
                       context,
                       MaterialPageRoute(
                         builder: (context) => ScheduleScreen(
-                          id: field.id,
-                          namaLapangan: field.name,
-                          hargaLapangan: "Rp ${field.price}",
+                          id: widget.field.id,
+                          namaLapangan: widget.field.name,
+                          hargaLapangan: 'Rp ${widget.field.price}',
                         ),
                       ),
                     );
@@ -152,7 +196,7 @@ class DetailScreen extends StatelessWidget {
                     ),
                   ),
                   child: const Text(
-                    "Pilih Jadwal",
+                    'Pilih Jadwal',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -167,25 +211,26 @@ class DetailScreen extends StatelessWidget {
     );
   }
 
-  // --- WIDGET HELPER UNTUK MENGURAI FASILITAS ---
   Widget _buildDynamicFacilities() {
-    // DISESUAIKAN: Menggunakan field.fasilitas sesuai dengan properti di FieldModel kamu
-    if (field.fasilitas == null || field.fasilitas.toString().trim().isEmpty) {
+    if (widget.field.fasilitas == null || widget.field.fasilitas.toString().trim().isEmpty) {
       return const Text(
-        "Standard Court",
+        'Standard Court',
         style: TextStyle(color: Colors.grey, fontSize: 13),
       );
     }
 
-    List<String> facilityList = [];
+    final List<String> facilityList = [];
 
-    // Cek jika data dari Laravel berupa List/Array JSON
-    if (field.fasilitas is List) {
-      facilityList = List<String>.from(field.fasilitas);
-    } 
-    // Cek jika data dari Laravel berupa String teks biasa (misal: "Wifi, Toilet, Parkir")
-    else if (field.fasilitas is String) {
-      facilityList = field.fasilitas.toString().split(',').map((e) => e.trim()).toList();
+    if (widget.field.fasilitas is List) {
+      facilityList.addAll(List<String>.from(widget.field.fasilitas));
+    } else if (widget.field.fasilitas is String) {
+      facilityList.addAll(
+        widget.field.fasilitas
+            .toString()
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty),
+      );
     }
 
     return Wrap(
@@ -208,15 +253,14 @@ class DetailScreen extends StatelessWidget {
     );
   }
 
-  // Memberikan icon otomatis berdasarkan kata kunci yang dikirim oleh backend Laravel
   IconData _getIconForFacility(String name) {
-    String lower = name.toLowerCase();
+    final lower = name.toLowerCase();
     if (lower.contains('parkir')) return Icons.local_parking;
     if (lower.contains('toilet') || lower.contains('wc')) return Icons.wc;
     if (lower.contains('minum') || lower.contains('kantin')) return Icons.local_drink;
     if (lower.contains('makan')) return Icons.restaurant;
     if (lower.contains('wifi')) return Icons.wifi;
     if (lower.contains('mushola') || lower.contains('masjid')) return Icons.mosque;
-    return Icons.check_circle_outline; // Default icon jika tidak ada kecocokan kata
+    return Icons.check_circle_outline;
   }
 }

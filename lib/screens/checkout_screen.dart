@@ -3,6 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:penyewaan_lapangan/services/api_service.dart';
 import 'package:penyewaan_lapangan/screens/payment_screen.dart';
+import 'package:penyewaan_lapangan/services/midtrans_payment_service.dart';
+import '../utils/auth_guard.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final int lapanganId;
@@ -27,107 +29,109 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _isLoading = false;
 
-  String paymentMethod = "Midtrans Full"; // default
+  String paymentMethod = 'Midtrans Sandbox';
 
   Future<void> _handlePayment() async {
+    if (!await requireAuthenticatedUser(context) || !mounted) return;
     setState(() => _isLoading = true);
 
-    final apiService = ApiService();
-    final prefs = await SharedPreferences.getInstance();
-
-    final String? userRaw = prefs.getString('user');
-    int userId = 0;
-
-    if (userRaw != null) {
-      userId = jsonDecode(userRaw)['id'] ?? 0;
-    }
-
-    double cleanPrice =
-        double.tryParse(widget.harga.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-
-   List<String> listJam = widget.jam
-    .split(',')
-    .map((e) => e.trim())
-    .where((e) => e.isNotEmpty)
-    .toList();
-
-if (listJam.isEmpty) {
-  throw Exception("Jam tidak valid");
-}
-
-    String jamMulai = listJam.first;
-
-    String jamTerakhir = listJam.last;
-    int hourEnd = int.parse(jamTerakhir.split(':').first);
-    String jamSelesai =
-        "${(hourEnd + 1).toString().padLeft(2, '0')}:00";
-
     try {
+      final apiService = ApiService();
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      final userRaw = prefs.getString('user');
+      final currentUser = userRaw == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(jsonDecode(userRaw));
+      final userId = currentUser['id'] as int? ?? 0;
+      final cleanPrice =
+          double.tryParse(widget.harga.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final listJam = widget.jam
+          .split(',')
+          .map((time) => time.trim())
+          .where((time) => time.isNotEmpty)
+          .toList();
+
+      if (listJam.isEmpty) throw Exception('Jam tidak valid');
+
+      final jamMulai = listJam.first;
+      final jamTerakhir = listJam.last;
+      final hourEnd = int.parse(jamTerakhir.split(':').first);
+      final jamSelesai = '${(hourEnd + 1).toString().padLeft(2, '0')}:00';
+
+      if (paymentMethod == 'Midtrans Sandbox') {
+        final transaction = await MidtransPaymentService().createTransaction(
+          amount: cleanPrice.round(),
+          itemName: widget.namaLapangan,
+          customerName: currentUser['name']?.toString() ?? 'Pelanggan',
+          customerEmail: currentUser['email']?.toString() ?? '',
+        );
+        if (!mounted) return;
+
+        final paymentResult = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PaymentScreen(
+              paymentUrl: transaction.redirectUrl,
+              orderId: transaction.orderId,
+              totalPrice: cleanPrice,
+              venueName: widget.namaLapangan,
+              date: widget.tanggal,
+              time: widget.jam,
+            ),
+          ),
+        );
+
+        if (paymentResult != true || !mounted) return;
+      }
+
       final result = await apiService.postBooking(
         userId: userId,
         lapanganId: widget.lapanganId,
-        paymentMethod: paymentMethod, // 🔥 FIXED
+        paymentMethod: paymentMethod,
         date: widget.tanggal,
         startTime: jamMulai,
         endTime: jamSelesai,
         totalPrice: cleanPrice,
         hours: listJam.length,
       );
+      if (!mounted) return;
 
       if (result['status'] == true) {
-        if (mounted) {
-          // =========================
-          // CASH / OFFLINE
-          // =========================
-          if (paymentMethod == "Cash") {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              '/history',
-              (route) => route.isFirst,
-            );
-            return;
-          }
-
-          // =========================
-          // MIDTRANS (FULL / DP)
-          // =========================
-          if (result['redirect_url'] != null) {
-            final payResult = await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PaymentScreen(
-                  paymentUrl: result['redirect_url'],
-                ),
-              ),
-            );
-
-            if (payResult != null && payResult == true) {
-              if (mounted) {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/history',
-                  (route) => route.isFirst,
-                );
-              }
-            }
-          } else {
-            _showSnackBar("URL pembayaran tidak ditemukan", Colors.red);
-          }
+        if (result['local_demo'] == true) {
+          _showSnackBar(
+            '${result['message']} +${result['current_points']} poin.',
+            Colors.green,
+          );
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            '/history',
+            (route) => route.isFirst,
+          );
+          return;
         }
+
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          '/history',
+          (route) => route.isFirst,
+        );
       } else {
         _showSnackBar("Gagal: ${result['message']}", Colors.red);
       }
     } catch (e) {
-      _showSnackBar("Koneksi error!", Colors.red);
+      if (mounted) {
+        _showSnackBar('Pembayaran atau booking gagal: $e', Colors.red);
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -180,31 +184,24 @@ if (listJam.isEmpty) {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
 
-            RadioListTile(
-              value: "Midtrans Full",
+            RadioGroup<String>(
               groupValue: paymentMethod,
-              title: const Text("Full Payment (Midtrans)"),
-              onChanged: (v) {
-                setState(() => paymentMethod = v.toString());
+              onChanged: (value) {
+                if (value != null) setState(() => paymentMethod = value);
               },
-            ),
-
-            RadioListTile(
-              value: "DP",
-              groupValue: paymentMethod,
-              title: const Text("DP 50%"),
-              onChanged: (v) {
-                setState(() => paymentMethod = v.toString());
-              },
-            ),
-
-            RadioListTile(
-              value: "Cash",
-              groupValue: paymentMethod,
-              title: const Text("Bayar di Tempat"),
-              onChanged: (v) {
-                setState(() => paymentMethod = v.toString());
-              },
+              child: Column(
+                children: [
+                  const RadioListTile<String>(
+                    value: 'Midtrans Sandbox',
+                    title: Text('Midtrans Sandbox'),
+                    subtitle: Text('Mode uji coba, tidak ada pembayaran nyata'),
+                  ),
+                  const RadioListTile<String>(
+                    value: 'Cash',
+                    title: Text('Bayar di Tempat'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -220,8 +217,10 @@ if (listJam.isEmpty) {
           ),
           child: _isLoading
               ? const CircularProgressIndicator(color: Colors.white)
-              : const Text(
-                  "Bayar Sekarang",
+              : Text(
+                  paymentMethod == 'Midtrans Sandbox'
+                      ? 'Lanjut ke Sandbox'
+                      : 'Konfirmasi Booking',
                   style: TextStyle(color: Colors.white),
                 ),
         ),

@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'detail_screen.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:penyewaan_lapangan/models/field_model.dart';
 import '../models/notification_model.dart';
+import '../services/local_app_data_service.dart';
 import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -24,64 +23,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    futureFields = fetchFields();
-    futureNotifications = fetchNotifications();
-  }
-
-  // 🔥 Ambil data dari Laravel API
-  Future<List<FieldModel>> fetchFields() async {
-    try {
-      final response = await http.get(
-        Uri.parse('https://sportsfield.my.id/api/fields'),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        List<FieldModel> fields = (data['data'] as List)
-            .map((json) => FieldModel.fromJson(json))
-            .toList();
-
-        setState(() {
-          allFields = fields;
-          filteredFields = fields;
-        });
-
-        return fields;
-      } else {
-        throw Exception('Gagal ambil data');
-      }
-    } catch (e) {
-      print("Error Fetching: $e");
-      return [];
-    }
-  }
-
-  Future<List<NotificationModel>> fetchNotifications() async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-          'https://sportsfield.my.id/api/notifications/1',
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-
-        return (data['data'] as List)
-            .map((e) => NotificationModel.fromJson(e))
-            .toList();
-      }
-    } catch (e) {
-      print(e);
-    }
-
-    return [];
+    allFields = LocalAppDataService.fields;
+    filteredFields = LocalAppDataService.fields;
+    futureFields = Future.value(LocalAppDataService.fields);
+    futureNotifications = Future.value(LocalAppDataService.notifications);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F9F5),
       body: FutureBuilder<List<FieldModel>>(
         future: futureFields,
         builder: (context, snapshot) {
@@ -92,42 +43,55 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           if (snapshot.hasError) {
-            return const Center(child: Text("Gagal mengambil data"));
+            return const Center(child: Text('Gagal mengambil data'));
           }
 
-          // FIX: Variabel ini kita manfaatkan untuk list di bawahnya agar tidak mubazir 🚀
           final dataFields = filteredFields;
 
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  child: Text(
-                    "Kategori Olahraga",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          return RefreshIndicator(
+            onRefresh: () async {
+              setState(() {
+                allFields = LocalAppDataService.fields;
+                filteredFields = allFields;
+                selectedCategory = 'Semua';
+              });
+            },
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildHeader(),
+                  const SizedBox(height: 18),
+                  _buildCategories(),
+                  if (dataFields.isNotEmpty) _buildFeaturedCard(dataFields.first),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Text(
+                      'Venue Pilihan Untukmu',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Color(0xFF1E2A2B),
+                      ),
+                    ),
                   ),
-                ),
-                _buildCategories(),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  child: Text(
-                    "Venue Pilihan Untukmu",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  _buildHorizontalList(context, dataFields),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Text(
+                      'Rekomendasi Terdekat',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Color(0xFF1E2A2B),
+                      ),
+                    ),
                   ),
-                ),
-                _buildHorizontalList(context, dataFields), // <-- Diubah menggunakan dataFields
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                  child: Text(
-                    "Rekomendasi Terdekat",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                  ),
-                ),
-                _buildVerticalList(dataFields), // <-- Diubah menggunakan dataFields
-              ],
+                  _buildVerticalList(dataFields),
+                ],
+              ),
             ),
           );
         },
@@ -135,7 +99,106 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================= UI =================
+  Widget _buildFeaturedCard(FieldModel field) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
+            ),
+            child: Stack(
+              children: [
+                SizedBox(
+                  height: 190,
+                  width: double.infinity,
+                  child: _fieldImage(
+                    field,
+                    width: double.infinity,
+                    height: 190,
+                  ),
+                ),
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.75),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 18,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'Featured',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        field.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${field.type} • Rp ${field.price} / jam',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildHorizontalList(BuildContext context, List<FieldModel> fields) {
     return SizedBox(
@@ -163,11 +226,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 15,
+                color: Colors.black.withValues(alpha: 0.06),
+                blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
             ],
@@ -177,37 +240,12 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               ClipRRect(
                 borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(20),
+                  top: Radius.circular(22),
                 ),
-                child: Image.network(
-                  field.imageUrl ?? '', 
-                  height: 120,
+                child: _fieldImage(
+                  field,
                   width: double.infinity,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      height: 120,
-                      color: Colors.grey[100],
-                      child: const Center(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF00A32A),
-                            strokeWidth: 2,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    height: 120,
-                    color: Colors.grey[200],
-                    child: const Center(
-                      child: Icon(Icons.image, color: Colors.grey, size: 40),
-                    ),
-                  ),
+                  height: 128,
                 ),
               ),
               Padding(
@@ -215,26 +253,49 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.sports_tennis, size: 12, color: Color(0xFF00A32A)),
+                        const SizedBox(width: 6),
+                        Text(
+                          field.type,
+                          style: const TextStyle(
+                            color: Color(0xFF00A32A),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     Text(
                       field.name,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
+                        color: Color(0xFF1E2A2B),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      "Tersedia",
-                      style: TextStyle(color: Colors.grey, fontSize: 11),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 12, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Indramayu',
+                          style: TextStyle(color: Colors.grey, fontSize: 11),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      "Rp ${field.price} / jam",
+                      'Rp ${field.price} / jam',
                       style: const TextStyle(
                         color: Color(0xFF00A32A),
                         fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
                     ),
                   ],
@@ -256,33 +317,52 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (context, index) {
         final field = fields[index];
 
-        return Card(
+        return Container(
           margin: const EdgeInsets.only(bottom: 15),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
           child: ListTile(
+            contentPadding: const EdgeInsets.all(10),
             leading: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                field.imageUrl ?? '',
-                width: 60,
-                height: 60,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 60,
-                  height: 60,
-                  color: Colors.grey[200],
-                  child: const Icon(Icons.image, color: Colors.grey),
-                ),
+              borderRadius: BorderRadius.circular(12),
+              child: _fieldImage(
+                field,
+                width: 72,
+                height: 72,
               ),
             ),
             title: Text(
               field.name,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E2A2B),
+              ),
             ),
-            subtitle: Text("${field.type} | Rp ${field.price}"),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text('${field.type} • Tersedia sekarang'),
+                const SizedBox(height: 4),
+                Text(
+                  'Rp ${field.price} / jam',
+                  style: const TextStyle(
+                    color: Color(0xFF00A32A),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -295,11 +375,44 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _fieldImage(
+    FieldModel field, {
+    required double width,
+    required double height,
+  }) {
+    final imageUrl = field.imageUrl;
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Container(
+        width: width,
+        height: height,
+        color: Colors.grey[200],
+        child: const Icon(Icons.sports_soccer, color: Colors.grey, size: 36),
+      );
+    }
+
+    return Image.network(
+      imageUrl,
+      width: width,
+      height: height,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => Container(
+        width: width,
+        height: height,
+        color: Colors.grey[200],
+        child: const Icon(Icons.sports_soccer, color: Colors.grey, size: 36),
+      ),
+    );
+  }
+
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.only(top: 60, left: 20, right: 20, bottom: 30),
+      padding: const EdgeInsets.only(top: 52, left: 20, right: 20, bottom: 26),
       decoration: const BoxDecoration(
-        color: Color(0xFF00A32A),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0D9F4B), Color(0xFF00A32A)],
+        ),
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(30),
           bottomRight: Radius.circular(30),
@@ -314,14 +427,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Lokasi Kamu",
+                    'Lokasi Kamu',
                     style: TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   Text(
-                    "📍 Indramayu, ID",
+                    '📍 Indramayu, ID',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
                   ),
                 ],
@@ -337,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           IconButton(
                             icon: const Icon(
-                              Icons.notifications,
+                              Icons.notifications_outlined,
                               color: Colors.white,
                             ),
                             onPressed: () {
@@ -353,16 +467,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           if (count > 0)
                             Positioned(
-                              right: 6,
-                              top: 6,
+                              right: 8,
+                              top: 8,
                               child: Container(
                                 padding: const EdgeInsets.all(4),
                                 decoration: const BoxDecoration(
-                                  color: Colors.red,
+                                  color: Color(0xFFFF5C5C),
                                   shape: BoxShape.circle,
                                 ),
                                 child: Text(
-                                  "$count",
+                                  '$count',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10,
@@ -378,10 +492,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   GestureDetector(
                     onTap: widget.onProfileTap,
                     child: const CircleAvatar(
+                      radius: 19,
                       backgroundColor: Colors.white24,
                       child: Icon(
                         Icons.person,
                         color: Colors.white,
+                        size: 20,
                       ),
                     ),
                   ),
@@ -389,7 +505,55 @@ class _HomeScreenState extends State<HomeScreen> {
               )
             ],
           ),
-          const SizedBox(height: 25),
+          const SizedBox(height: 20),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text(
+                        'Hai, siap main hari ini?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'Cari lapangan favoritmu dan booking sekarang',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(
+                    Icons.sports_soccer,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
           TextField(
             onChanged: (value) {
               setState(() {
@@ -399,68 +563,78 @@ class _HomeScreenState extends State<HomeScreen> {
               });
             },
             decoration: InputDecoration(
-              hintText: "Cari venue...",
-              prefixIcon: const Icon(Icons.search),
+              hintText: 'Cari venue...',
+              hintStyle: const TextStyle(color: Colors.grey),
+              prefixIcon: const Icon(Icons.search, color: Colors.grey),
               filled: true,
               fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 0),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(15),
                 borderSide: BorderSide.none,
               ),
             ),
-          )
+          ),
         ],
       ),
     );
   }
 
   Widget _buildCategories() {
-    List<String> categories = [
-      "Semua",
-      "Futsal",
-      "Badminton",
-    ];
+    final categories = ['Semua', 'Futsal', 'Badminton'];
 
-    return SizedBox(
-      height: 45,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: categories.length,
-        itemBuilder: (context, index) {
-          final cat = categories[index];
-          final isActive = selectedCategory == cat;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: SizedBox(
+        height: 46,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: categories.length,
+          itemBuilder: (context, index) {
+            final cat = categories[index];
+            final isActive = selectedCategory == cat;
 
-          return GestureDetector(
-            onTap: () {
-              setState(() {
-                selectedCategory = cat;
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  selectedCategory = cat;
 
-                if (cat == "Semua") {
-                  filteredFields = allFields;
-                } else {
-                  filteredFields =
-                      allFields.where((e) => e.type == cat).toList();
-                }
-              });
-            },
-            child: Container(
-              margin: const EdgeInsets.only(right: 10),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-              decoration: BoxDecoration(
-                color: isActive ? const Color(0xFF00A32A) : Colors.grey[200],
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                cat,
-                style: TextStyle(
-                  color: isActive ? Colors.white : Colors.black,
+                  if (cat == 'Semua') {
+                    filteredFields = allFields;
+                  } else {
+                    filteredFields = allFields.where((e) => e.type == cat).toList();
+                  }
+                });
+              },
+              child: Container(
+                margin: const EdgeInsets.only(right: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isActive ? const Color(0xFF00A32A) : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isActive ? Colors.transparent : Colors.grey.shade200,
+                  ),
+                  boxShadow: [
+                    if (!isActive)
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.02),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                  ],
+                ),
+                child: Text(
+                  cat,
+                  style: TextStyle(
+                    color: isActive ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

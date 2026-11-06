@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:http/http.dart' as http; 
-import 'dart:convert'; 
-import 'package:shared_preferences/shared_preferences.dart'; 
+import '../services/local_auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,61 +15,27 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
 
-  // --- FUNGSI LOGIN API LARAVEL ---
+  // --- FUNGSI LOGIN LOKAL ---
   Future<void> _handleLoginManual() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      _showSnackBar("Email dan Password tidak boleh kosong!", Colors.orange);
+      _showSnackBar("Email/nomor HP dan password wajib diisi!", Colors.orange);
       return;
     }
 
     setState(() => _isLoading = true);
 
     try {
-      // Hit API loginApi yang sudah dibuat di Laravel
-      final response = await http.post(
-        Uri.parse('https://sportsfield.my.id/api/login'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({'email': email, 'password': password}),
-      );
-
-      if (response.statusCode == 200) {
-        // FIX: Hanya decode sekali saja di sini untuk menghilangkan warning unused_local_variable
-        final data = jsonDecode(response.body);
-
-        print("LOGIN RESPONSE: $data");
-
-        final prefs = await SharedPreferences.getInstance();
-        final user = data['data'];
-
-        if (user == null) {
-          _showSnackBar("User tidak ditemukan di response", Colors.red);
-          return;
-        }
-
-        await prefs.setString('token', data['access_token'] ?? '');
-        await prefs.setInt('user_id', user['id']);
-        await prefs.setString('user', jsonEncode(user));
-        
-        // FIX TAMBAHAN: Simpan user_name secara eksplisit agar dikenali oleh ChatScreen
-        await prefs.setString('user_name', user['name'] ?? '');
-
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/home');
-        }
-      } else {
-        _showSnackBar(
-          jsonDecode(response.body)['message'] ?? "Login gagal",
-          Colors.red,
-        );
+      await LocalAuthService.login(identifier: email, password: password);
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
       }
+    } on LocalAuthException catch (e) {
+      _showSnackBar(e.message, Colors.red);
     } catch (e) {
-      _showSnackBar("Gagal terhubung ke server: $e", Colors.red);
+      _showSnackBar("Login lokal gagal: $e", Colors.red);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

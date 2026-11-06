@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/local_auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -24,12 +22,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final String phone = _phoneController.text.trim();
     final String password = _passwordController.text.trim();
 
-    // VALIDASI: Sekarang Nomor HP WAJIB diisi
     if (name.isEmpty || email.isEmpty || phone.isEmpty || password.isEmpty) {
       _showSnackBar(
         "Semua kolom (termasuk nomor HP) wajib diisi!",
         Colors.orange,
       );
+      return;
+    }
+
+    if (!email.contains('@')) {
+      _showSnackBar("Masukkan email yang valid.", Colors.orange);
       return;
     }
 
@@ -41,43 +43,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final response = await http.post(
-        Uri.parse('https://sportsfield.my.id/api/register'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: jsonEncode({
-          'name': name,
-          'email': email,
-          'phone': phone, // Mengirim nomor HP
-          'password': password,
-          'role': 'user',
-          'points': 0,
-          'status': 'Aktif',
-        }),
+      await LocalAuthService.register(
+        name: name,
+        email: email,
+        phone: phone,
+        password: password,
       );
 
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        if (data['access_token'] != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('token', data['access_token']);
-        }
-
-        if (mounted) {
-          Navigator.pushReplacementNamed(context, '/success_auth');
-        }
-      } else {
-        String errorMsg = data['message'] ?? "Registrasi gagal";
-        if (data['errors'] != null) {
-          errorMsg = data['errors'].toString();
-        }
-        _showSnackBar(errorMsg, Colors.red);
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/success_auth');
       }
+    } on LocalAuthException catch (e) {
+      _showSnackBar(e.message, Colors.red);
     } catch (e) {
-      _showSnackBar("Koneksi gagal: $e", Colors.red);
+      _showSnackBar("Gagal menyimpan akun di perangkat: $e", Colors.red);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
