@@ -1,7 +1,10 @@
 import 'dart:math' as math;
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../firebase_options.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -63,10 +66,15 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkLogin() async {
-    final prefs = await SharedPreferences.getInstance();
-    await Future.delayed(const Duration(milliseconds: 2400));
+    final prefsFuture = SharedPreferences.getInstance();
+    final startupResults = await Future.wait<dynamic>([
+      prefsFuture,
+      Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+      Future<void>.delayed(const Duration(milliseconds: 2400)),
+    ]);
     if (!mounted) return;
 
+    final prefs = startupResults.first as SharedPreferences;
     final token = prefs.getString('token');
     Navigator.pushReplacementNamed(
       context,

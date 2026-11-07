@@ -88,6 +88,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final result = await apiService.postBooking(
         userId: userId,
         lapanganId: widget.lapanganId,
+        fieldName: widget.namaLapangan, // Ensure fieldName is passed
         paymentMethod: paymentMethod,
         date: widget.tanggal,
         startTime: jamMulai,
@@ -98,6 +99,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (!mounted) return;
 
       if (result['status'] == true) {
+        if (paymentMethod == 'Midtrans Sandbox') {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PaymentSuccessScreen(
+                venueName: widget.namaLapangan,
+                date: widget.tanggal,
+                time: widget.jam,
+                totalPrice: cleanPrice,
+              ),
+            ),
+            (route) => false,
+          );
+          return;
+        }
+
         if (result['local_demo'] == true) {
           _showSnackBar(
             '${result['message']} +${result['current_points']} poin.',

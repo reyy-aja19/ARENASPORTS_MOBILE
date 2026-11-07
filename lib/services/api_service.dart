@@ -1,17 +1,14 @@
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/match_model.dart';
 import 'local_app_data_service.dart';
 import 'local_auth_service.dart';
 
 class ApiService {
-  /*
-  |--------------------------------------------------------------------------
-  | 1. POST BOOKING (Untuk Checkout)
-  |--------------------------------------------------------------------------
-  |*/
   Future<Map<String, dynamic>> postBooking({
     required int userId,
     required int lapanganId,
+    required String fieldName,
     required String paymentMethod,
     required String date,
     required String startTime,
@@ -36,23 +33,14 @@ class ApiService {
       totalPrice: totalPrice,
       hours: hours,
       paymentMethod: paymentMethod,
+      fieldName: fieldName,
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | 2. GET HISTORY (Untuk HistoryScreen)
-  |--------------------------------------------------------------------------
-  |*/
   Future<List<dynamic>> getBookingHistory(int userId) async {
     return LocalAppDataService.getBookingHistory(userId);
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | 3. GET BOOKED SLOTS (Untuk Warnain Jam Merah)
-  |--------------------------------------------------------------------------
-  |*/
   Future<List<String>> getBookedSlots(int lapanganId, String tanggal) async {
     return LocalAppDataService.getBookedSlots(
       fieldId: lapanganId,
@@ -60,11 +48,6 @@ class ApiService {
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | POST CREATE OPEN MATCH
-  |--------------------------------------------------------------------------
-  |*/
   Future<Map<String, dynamic>> createOpenMatch({
     required int bookingId,
     required String title,
@@ -95,23 +78,14 @@ class ApiService {
     };
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | 4. REWARDS MANAGEMENT (Untuk PointScreen)
-  |--------------------------------------------------------------------------
-  |*/
-
-  /// Ambil daftar reward dari database Laravel
   Future<Map<String, dynamic>> getRewards() async {
     return LocalAppDataService.getRewards();
   }
 
-  /// Post klaim penukaran reward ke backend Laravel
   Future<Map<String, dynamic>> redeemReward({required int rewardId}) async {
     return LocalAppDataService.redeemReward(rewardId);
   }
 
-  // Tambahkan di dalam class ApiService
   Future<Map<String, dynamic>?> getUserProfile() async {
     return LocalAuthService.currentUser();
   }

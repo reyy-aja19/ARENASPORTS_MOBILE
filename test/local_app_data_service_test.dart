@@ -112,4 +112,64 @@ void main() {
     expect(field.galleryImages.length, 3);
     expect(field.galleryImages.every((url) => url.isNotEmpty), isTrue);
   });
+
+  test('venue court counts and court schedules are independent', () async {
+    final user = await LocalAuthService.register(
+      name: 'Demo User',
+      email: 'courts@example.com',
+      phone: '08123456789',
+      password: 'Password123',
+    );
+    final fields = LocalAppDataService.fields;
+    final kelapaGadingBadminton = fields.firstWhere(
+      (field) =>
+          field.name == 'Kelapa Gading Sports Indramayu' &&
+          field.type == 'Badminton',
+    );
+    final kelapaGadingFutsal = fields.firstWhere(
+      (field) =>
+          field.name == 'Kelapa Gading Sports Indramayu' &&
+          field.type == 'Futsal',
+    );
+    final futsalNci = fields.firstWhere((field) => field.name == 'Futsal NCI');
+    final firstCourtId = kelapaGadingBadminton.courtIdFor(1);
+    final secondCourtId = kelapaGadingBadminton.courtIdFor(2);
+    final firstCourt = kelapaGadingBadminton.courtFor(1);
+    final secondCourt = kelapaGadingBadminton.courtFor(2);
+
+    expect(kelapaGadingBadminton.courtCount, 6);
+    expect(kelapaGadingFutsal.courtCount, 1);
+    expect(futsalNci.courtCount, 6);
+    expect(firstCourtId, isNot(secondCourtId));
+    expect(firstCourt.imageUrl, isNot(secondCourt.imageUrl));
+    expect(firstCourt.facilities, isNot(secondCourt.facilities));
+    expect(firstCourt.description, isNot(secondCourt.description));
+
+    final result = await LocalAppDataService.createBooking(
+      userId: user['id'] as int,
+      fieldId: firstCourtId,
+      fieldName: '${kelapaGadingBadminton.name} • Lapangan 1',
+      date: '2026-11-20',
+      startTime: '18:00',
+      endTime: '19:00',
+      totalPrice: 50000,
+      hours: 1,
+    );
+
+    expect(result['status'], isTrue);
+    expect(
+      await LocalAppDataService.getBookedSlots(
+        fieldId: firstCourtId,
+        date: '2026-11-20',
+      ),
+      ['18:00'],
+    );
+    expect(
+      await LocalAppDataService.getBookedSlots(
+        fieldId: secondCourtId,
+        date: '2026-11-20',
+      ),
+      isEmpty,
+    );
+  });
 }

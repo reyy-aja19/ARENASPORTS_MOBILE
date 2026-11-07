@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
 
 // Import Screens
 import 'screens/login_screen.dart';
@@ -22,13 +20,8 @@ import 'screens/success_auth_screen.dart';
 // Catatan: ScheduleScreen dan CheckoutScreen tidak di-import di sini
 // karena sudah tidak dipakai di routing statis (MaterialApp routes).
 
-void main() async {
-  // Wajib tambahin ini kalau pakai async di main
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Inisialisasi Firebase
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
   runApp(const SportsFieldApp());
 }
 
@@ -50,9 +43,9 @@ class SportsFieldApp extends StatelessWidget {
         ),
       ),
       initialRoute: '/',
-routes: {
-  '/': (context) => const SplashScreen(),
-  '/login': (context) => const LoginScreen(),
+      routes: {
+        '/': (context) => const SplashScreen(),
+        '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const MainNavigation(),
         // REVISI: Route /schedule, /checkout, dan /payment dihapus dari sini
@@ -60,14 +53,14 @@ routes: {
         '/history': (context) => const HistoryScreen(),
         '/success_auth': (context) => const SuccessAuthScreen(),
         '/request-admin': (context) => const RequestAdminScreen(),
-         '/settings': (context) => const SettingsScreen(),
-          '/change-password': (context) => const ChangePasswordScreen(),
-          '/terms': (context) => const TermsScreen(),
-          '/privacy': (context) => const PrivacyScreen(),
-              },
-            );
-          }
-        }
+        '/settings': (context) => const SettingsScreen(),
+        '/change-password': (context) => const ChangePasswordScreen(),
+        '/terms': (context) => const TermsScreen(),
+        '/privacy': (context) => const PrivacyScreen(),
+      },
+    );
+  }
+}
 
 // --- Wrapper untuk Bottom Navigation ---
 class MainNavigation extends StatefulWidget {

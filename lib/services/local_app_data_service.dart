@@ -11,8 +11,9 @@ class LocalAppDataService {
   static final List<FieldModel> fields = [
     FieldModel(
       id: 1,
-      name: 'Lapangan Futsal Indramayu',
+      name: 'Kelapa Gading Sports Indramayu',
       type: 'Futsal',
+      courtCount: 1,
       price: 150000,
       imageUrl:
           'https://images.unsplash.com/photo-1543351611-58f69d7c1781?auto=format&fit=crop&w=1200&q=80',
@@ -21,15 +22,29 @@ class LocalAppDataService {
         'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
       ],
+      courts: _buildCourtInventory(
+        count: 1,
+        price: 150000,
+        images: [
+          'https://images.unsplash.com/photo-1543351611-58f69d7c1781?auto=format&fit=crop&w=1200&q=80',
+        ],
+        facilities: [
+          ['Rumput sintetis', 'Lampu lapangan', 'Ruang ganti'],
+        ],
+        descriptions: [
+          'Lapangan futsal Kelapa Gading dengan area bermain khusus dan jadwal booking tersendiri.',
+        ],
+      ),
       description:
-          'Lapangan futsal premium dengan rumput sintetis dan pencahayaan maksimal.',
+          'Satu lapangan futsal dengan rumput sintetis dan pencahayaan maksimal.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Ruang ganti', 'Wi‑Fi'],
     ),
     FieldModel(
       id: 2,
-      name: 'GOR Badminton Sport Center',
+      name: 'Kelapa Gading Sports Indramayu',
       type: 'Badminton',
+      courtCount: 6,
       price: 50000,
       imageUrl:
           'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=1200&q=80',
@@ -38,15 +53,40 @@ class LocalAppDataService {
         'https://images.unsplash.com/photo-1708312604109-16c0be9326cd?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D',
         'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=1200&q=80',
       ],
+      courts: _buildCourtInventory(
+        count: 6,
+        price: 50000,
+        images: [
+          'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=1200&q=80',
+          'https://images.unsplash.com/photo-1708312604109-16c0be9326cd?q=80&w=1074&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=NHwxMjA3fDA%3D',
+        ],
+        facilities: [
+          ['Lantai vinyl', 'Lampu indoor', 'Area pemanasan'],
+          ['Lantai vinyl', 'Lampu indoor', 'Area duduk pemain'],
+          ['Lantai vinyl', 'Lampu indoor', 'Dekat kantin'],
+          ['Lantai vinyl', 'Lampu indoor', 'Area pemanasan'],
+          ['Lantai vinyl', 'Lampu indoor', 'Area duduk pemain'],
+          ['Lantai vinyl', 'Lampu indoor', 'Dekat kantin'],
+        ],
+        descriptions: [
+          'Lapangan badminton 1 indoor untuk permainan santai dan kompetitif.',
+          'Lapangan badminton 2 indoor dengan area duduk pemain di sisi court.',
+          'Lapangan badminton 3 indoor, berlokasi dekat area kantin.',
+          'Lapangan badminton 4 indoor untuk permainan ganda dan latihan rutin.',
+          'Lapangan badminton 5 indoor dengan ruang tunggu di sisi permainan.',
+          'Lapangan badminton 6 indoor, cocok untuk latihan dan pertandingan.',
+        ],
+      ),
       description:
-          'Lapangan badminton indoor dengan lantai anti selip dan area pemanasan.',
+          'Enam lapangan badminton indoor dengan lantai anti selip dan area pemanasan.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Kantin', 'Air minum'],
     ),
     FieldModel(
       id: 3,
-      name: 'Arena Futsal Sport Center',
+      name: 'Futsal NCI',
       type: 'Futsal',
+      courtCount: 6,
       price: 175000,
       imageUrl:
           'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
@@ -55,12 +95,54 @@ class LocalAppDataService {
         'https://images.unsplash.com/photo-1543351611-58f69d7c1781?auto=format&fit=crop&w=1200&q=80',
         'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
       ],
-      description:
-          'Arena futsal modern untuk latihan tim, turnamen kecil, dan hangout santai.',
+      courts: _buildCourtInventory(
+        count: 6,
+        price: 175000,
+        images: [
+          'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=1200&q=80',
+          'https://images.unsplash.com/photo-1543351611-58f69d7c1781?auto=format&fit=crop&w=1200&q=80',
+        ],
+        facilities: [
+          ['Rumput sintetis', 'Lampu lapangan', 'Papan skor'],
+          ['Rumput sintetis', 'Lampu lapangan', 'Area tunggu'],
+          ['Rumput sintetis', 'Lampu lapangan', 'Jaring pembatas'],
+          ['Rumput sintetis', 'Lampu lapangan', 'Papan skor'],
+          ['Rumput sintetis', 'Lampu lapangan', 'Area tunggu'],
+          ['Rumput sintetis', 'Lampu lapangan', 'Jaring pembatas'],
+        ],
+        descriptions: [
+          'Lapangan futsal NCI 1 untuk pertandingan dan latihan tim.',
+          'Lapangan futsal NCI 2 dengan area tunggu di sisi lapangan.',
+          'Lapangan futsal NCI 3 dengan jaring pembatas di area permainan.',
+          'Lapangan futsal NCI 4 untuk permainan tim dan latihan rutin.',
+          'Lapangan futsal NCI 5 dengan ruang tunggu di sekitar court.',
+          'Lapangan futsal NCI 6 untuk pertandingan dan sesi latihan.',
+        ],
+      ),
+      description: 'Enam lapangan futsal untuk latihan tim dan pertandingan.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Mushola', 'Cafe'],
     ),
   ];
+
+  static List<CourtModel> _buildCourtInventory({
+    required int count,
+    required int price,
+    required List<String> images,
+    required List<List<String>> facilities,
+    required List<String> descriptions,
+  }) {
+    return List.generate(
+      count,
+      (index) => CourtModel(
+        number: index + 1,
+        imageUrl: images[index % images.length],
+        price: price,
+        facilities: facilities[index],
+        description: descriptions[index],
+      ),
+    );
+  }
 
   static const List<Map<String, dynamic>> rewards = [
     {'id': 1, 'name': 'Voucher Booking Rp25.000', 'points': 100},
@@ -213,6 +295,7 @@ class LocalAppDataService {
     required num totalPrice,
     required int hours,
     String paymentMethod = 'Simulasi lokal',
+    String? fieldName,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final bookings = await getBookingHistory(userId);
@@ -246,18 +329,20 @@ class LocalAppDataService {
           return id is int && id > maxId ? id : maxId;
         }) +
         1;
-    final fieldName = switch (fieldId) {
-      2 => 'GOR Badminton Sport Center',
-      3 => 'Arena Futsal Sport Center',
-      _ => 'Lapangan Futsal Indramayu',
-    };
+    final bookingFieldName =
+        fieldName ??
+        switch (fieldId) {
+          2 => 'Kelapa Gading Sports Indramayu • Badminton 1',
+          3 => 'Futsal NCI • Futsal 1',
+          _ => 'Kelapa Gading Sports Indramayu • Futsal 1',
+        };
     bookings.insert(
       0,
       _booking(
         id: nextId,
         userId: userId,
         fieldId: fieldId,
-        fieldName: fieldName,
+        fieldName: bookingFieldName,
         date: date,
         startTime: startTime,
         endTime: endTime,

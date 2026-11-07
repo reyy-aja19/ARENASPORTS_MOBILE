@@ -65,31 +65,35 @@ class _HomeScreenState extends State<HomeScreen> {
                   _buildHeader(),
                   const SizedBox(height: 18),
                   _buildCategories(),
-                  if (dataFields.isNotEmpty) _buildFeaturedCard(dataFields.first),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    child: Text(
-                      'Venue Pilihan Untukmu',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Color(0xFF1E2A2B),
-                      ),
+                  if (dataFields.isNotEmpty)
+                    _buildFeaturedCard(dataFields.first),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Semua Venue',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Color(0xFF1E2A2B),
+                          ),
+                        ),
+                        Text(
+                          'Geser ke samping',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   _buildHorizontalList(context, dataFields),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                    child: Text(
-                      'Rekomendasi Terdekat',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Color(0xFF1E2A2B),
-                      ),
-                    ),
-                  ),
-                  _buildVerticalList(dataFields),
                 ],
               ),
             ),
@@ -119,7 +123,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: InkWell(
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
+              MaterialPageRoute(
+                builder: (context) => DetailScreen(field: field),
+              ),
             ),
             child: Stack(
               children: [
@@ -182,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        '${field.type} • Rp ${field.price} / jam',
+                        '${field.type} • ${field.courtCount} lapangan • Rp ${field.price} / jam',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 13,
@@ -205,173 +211,105 @@ class _HomeScreenState extends State<HomeScreen> {
       height: 250,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 15),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         itemCount: fields.length,
         itemBuilder: (context, index) {
-          return _cardVenue(context, fields[index]);
+          return Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _cardVenue(context, fields[index]),
+          );
         },
       ),
     );
   }
 
   Widget _cardVenue(BuildContext context, FieldModel field) {
-    return Container(
-      width: 220,
-      margin: const EdgeInsets.only(right: 15, bottom: 10),
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
+      ),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 220,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.06),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(22),
-                ),
-                child: _fieldImage(
-                  field,
-                  width: double.infinity,
-                  height: 128,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.sports_tennis, size: 12, color: Color(0xFF00A32A)),
-                        const SizedBox(width: 6),
-                        Text(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _fieldImage(field, width: double.infinity, height: 108),
+            Padding(
+              padding: const EdgeInsets.all(11),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        field.type == 'Badminton'
+                            ? Icons.sports_tennis
+                            : Icons.sports_soccer,
+                        size: 14,
+                        color: const Color(0xFF00A32A),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
                           field.type,
                           style: const TextStyle(
                             color: Color(0xFF00A32A),
-                            fontSize: 11,
+                            fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      field.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: Color(0xFF1E2A2B),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        const Icon(Icons.location_on, size: 12, color: Colors.grey),
-                        const SizedBox(width: 4),
-                        const Text(
-                          'Indramayu',
-                          style: TextStyle(color: Colors.grey, fontSize: 11),
+                      Text(
+                        '${field.courtCount} court',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Rp ${field.price} / jam',
-                      style: const TextStyle(
-                        color: Color(0xFF00A32A),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    field.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      height: 1.15,
+                      color: Color(0xFF1E2A2B),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Rp ${field.price} / jam',
+                    style: const TextStyle(
+                      color: Color(0xFF00A32A),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildVerticalList(List<FieldModel> fields) {
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      itemCount: fields.length,
-      itemBuilder: (context, index) {
-        final field = fields[index];
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 15),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(10),
-            leading: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: _fieldImage(
-                field,
-                width: 72,
-                height: 72,
-              ),
-            ),
-            title: Text(
-              field.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1E2A2B),
-              ),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Text('${field.type} • Tersedia sekarang'),
-                const SizedBox(height: 4),
-                Text(
-                  'Rp ${field.price} / jam',
-                  style: const TextStyle(
-                    color: Color(0xFF00A32A),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => DetailScreen(field: field),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -494,15 +432,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: const CircleAvatar(
                       radius: 19,
                       backgroundColor: Colors.white24,
-                      child: Icon(
-                        Icons.person,
-                        color: Colors.white,
-                        size: 20,
-                      ),
+                      child: Icon(Icons.person, color: Colors.white, size: 20),
                     ),
                   ),
                 ],
-              )
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -530,10 +464,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       SizedBox(height: 4),
                       Text(
                         'Cari lapangan favoritmu dan booking sekarang',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                     ],
                   ),
@@ -545,10 +476,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: Colors.white.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Icon(
-                    Icons.sports_soccer,
-                    color: Colors.white,
-                  ),
+                  child: const Icon(Icons.sports_soccer, color: Colors.white),
                 ),
               ],
             ),
@@ -602,13 +530,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (cat == 'Semua') {
                     filteredFields = allFields;
                   } else {
-                    filteredFields = allFields.where((e) => e.type == cat).toList();
+                    filteredFields = allFields
+                        .where((e) => e.type == cat)
+                        .toList();
                   }
                 });
               },
               child: Container(
                 margin: const EdgeInsets.only(right: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: isActive ? const Color(0xFF00A32A) : Colors.white,
                   borderRadius: BorderRadius.circular(20),
