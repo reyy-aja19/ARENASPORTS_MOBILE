@@ -206,134 +206,140 @@ class _DetailScreenState extends State<DetailScreen> {
     final imageUrl = court.imageUrl ?? widget.field.imageUrl;
     return SizedBox(
       width: 220,
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE7ECE9)),
+          side: const BorderSide(color: Color(0xFFE7ECE9)),
         ),
         clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              height: 90,
-              width: double.infinity,
-              child: imageUrl == null
-                  ? Container(
-                      color: const Color(0xFFEAF2ED),
-                      child: Icon(
-                        widget.field.type == 'Badminton'
-                            ? Icons.sports_tennis
-                            : Icons.sports_soccer,
-                        size: 42,
-                        color: const Color(0xFF00A32A),
-                      ),
-                    )
-                  : Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
+        child: InkWell(
+          onTap: () => _openCourtSchedule(court),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 90,
+                width: double.infinity,
+                child: imageUrl == null
+                    ? Container(
                         color: const Color(0xFFEAF2ED),
-                        child: const Icon(Icons.image_outlined, size: 42),
-                      ),
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Lapangan ${court.number}',
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Icon(
+                          widget.field.type == 'Badminton'
+                              ? Icons.sports_tennis
+                              : Icons.sports_soccer,
+                          size: 42,
+                          color: const Color(0xFF00A32A),
+                        ),
+                      )
+                    : Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: const Color(0xFFEAF2ED),
+                          child: const Icon(Icons.image_outlined, size: 42),
                         ),
                       ),
-                      Text(
-                        'Rp ${court.price} / jam',
-                        style: const TextStyle(
-                          color: Color(0xFF008C35),
-                          fontWeight: FontWeight.w700,
+              ),
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Lapangan ${court.number}',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Rp ${court.price} / jam',
+                          style: const TextStyle(
+                            color: Color(0xFF008C35),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      court.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        height: 1.3,
+                        fontSize: 12,
+                      ),
+                    ),
+                    if (court.facilities.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Fasilitas',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
                           fontSize: 11,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    court.description,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.grey.shade700,
-                      height: 1.3,
-                      fontSize: 12,
-                    ),
-                  ),
-                  if (court.facilities.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Fasilitas',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 5,
-                      runSpacing: 5,
-                      children: court.facilities
-                          .map(
-                            (facility) => Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEAF7EE),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                facility,
-                                style: const TextStyle(
-                                  color: Color(0xFF25613C),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
+                      const SizedBox(height: 5),
+                      Wrap(
+                        spacing: 5,
+                        runSpacing: 5,
+                        children: court.facilities
+                            .map(
+                              (facility) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEAF7EE),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  facility,
+                                  style: const TextStyle(
+                                    color: Color(0xFF25613C),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 38,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _openCourtSchedule(court),
-                      icon: const Icon(Icons.sports_soccer_outlined, size: 18),
-                      label: const Text('Booking'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF008C35),
-                        side: const BorderSide(color: Color(0xFF00A32A)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 38,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openCourtSchedule(court),
+                        icon: const Icon(
+                          Icons.sports_soccer_outlined,
+                          size: 18,
+                        ),
+                        label: const Text('Booking'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF008C35),
+                          side: const BorderSide(color: Color(0xFF00A32A)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

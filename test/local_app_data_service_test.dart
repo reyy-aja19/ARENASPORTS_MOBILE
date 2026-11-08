@@ -48,6 +48,48 @@ void main() {
     expect((await LocalAuthService.currentUser())?['points'], 20);
   });
 
+  test('booking otomatis jadi selesai setelah jam selesainya lewat', () async {
+    final user = await LocalAuthService.register(
+      name: 'Demo User',
+      email: 'auto@example.com',
+      phone: '08123456789',
+      password: 'Password123',
+    );
+    final userId = user['id'] as int;
+    final past = DateTime.now().subtract(const Duration(days: 1));
+    final pastDate =
+        '${past.year}-${past.month.toString().padLeft(2, '0')}-${past.day.toString().padLeft(2, '0')}';
+    final future = DateTime.now().add(const Duration(days: 2));
+    final futureDate =
+        '${future.year}-${future.month.toString().padLeft(2, '0')}-${future.day.toString().padLeft(2, '0')}';
+
+    await LocalAppDataService.createBooking(
+      userId: userId,
+      fieldId: 1,
+      date: pastDate,
+      startTime: '10:00',
+      endTime: '11:00',
+      totalPrice: 150000,
+      hours: 1,
+    );
+    await LocalAppDataService.createBooking(
+      userId: userId,
+      fieldId: 1,
+      date: futureDate,
+      startTime: '10:00',
+      endTime: '11:00',
+      totalPrice: 150000,
+      hours: 1,
+    );
+
+    final history = await LocalAppDataService.getBookingHistory(userId);
+    final finished = history.firstWhere((b) => b['booking_date'] == pastDate);
+    final upcoming = history.firstWhere((b) => b['booking_date'] == futureDate);
+
+    expect(finished['status'], 'selesai');
+    expect(upcoming['status'], 'lunas');
+  });
+
   test('local matches can be joined and created', () async {
     await LocalAuthService.register(
       name: 'Demo User',
@@ -63,6 +105,10 @@ void main() {
 
     expect(joinResult['success'], isTrue);
     expect(updatedMatches.first.jumlahBergabung, initialPlayers + 1);
+    expect(
+      await LocalAppDataService.getJoinedMatchIds(),
+      contains(matches.first.id),
+    );
 
     final created = await LocalAppDataService.createMatch(
       MatchModel(

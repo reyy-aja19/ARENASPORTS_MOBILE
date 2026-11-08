@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../widgets/app_dialog.dart';
+
 Future<bool> requireAuthenticatedUser(
   BuildContext context, {
   String message = 'Silakan login dengan akun untuk melanjutkan booking.',
@@ -10,25 +12,16 @@ Future<bool> requireAuthenticatedUser(
   if (token != null && token.isNotEmpty) return true;
   if (!context.mounted) return false;
 
-  final shouldLogin = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Login diperlukan'),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Nanti'),
-        ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Login'),
-        ),
-      ],
-    ),
+  final shouldLogin = await showAppConfirmDialog(
+    context,
+    title: 'Login Diperlukan',
+    message: message,
+    icon: Icons.lock_outline_rounded,
+    confirmLabel: 'Login',
+    cancelLabel: 'Nanti',
   );
 
-  if (shouldLogin == true && context.mounted) {
+  if (shouldLogin && context.mounted) {
     Navigator.pushNamed(context, '/login');
   }
   return false;

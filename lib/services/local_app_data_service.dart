@@ -172,13 +172,81 @@ class LocalAppDataService {
 
   static String _bookingKey(int userId) => 'local_bookings_$userId';
 
+  static const Set<String> _activeStatuses = {
+    'pending',
+    'dp',
+    'lunas',
+    'check in',
+  };
+
+  /// Mengembalikan status efektif sebuah booking.
+  ///
+  /// Booking yang masih aktif otomatis dianggap selesai ketika tanggal + jam
+  /// selesainya sudah terlewati.
+  static String effectiveStatus(Map<String, dynamic> booking, {DateTime? now}) {
+    final status = (booking['status'] ?? 'pending').toString().toLowerCase();
+    if (!_activeStatuses.contains(status)) return status;
+
+    final endAt = _bookingEndDateTime(booking);
+    if (endAt == null) return status;
+
+    return (now ?? DateTime.now()).isAfter(endAt) ? 'selesai' : status;
+  }
+
+  static DateTime? _bookingEndDateTime(Map<String, dynamic> booking) {
+    final rawDate = booking['booking_date']?.toString();
+    final rawEnd = booking['end_time']?.toString();
+    if (rawDate == null || rawEnd == null) return null;
+
+    final dateParts = rawDate.split('-');
+    if (dateParts.length != 3) return null;
+
+    final year = int.tryParse(dateParts[0]);
+    final month = int.tryParse(dateParts[1]);
+    final day = int.tryParse(dateParts[2]);
+
+    final timeParts = rawEnd.split(':');
+    final hour = int.tryParse(timeParts.first);
+    final minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) : 0;
+
+    if (year == null ||
+        month == null ||
+        day == null ||
+        hour == null ||
+        minute == null) {
+      return null;
+    }
+    return DateTime(year, month, day, hour, minute);
+  }
+
+  /// Menyimpan perubahan status otomatis. Return `true` jika ada yang berubah.
+  static bool _applyAutoCompletion(List<Map<String, dynamic>> bookings) {
+    var changed = false;
+    final now = DateTime.now();
+    for (final booking in bookings) {
+      final status = (booking['status'] ?? '').toString().toLowerCase();
+      final effective = effectiveStatus(booking, now: now);
+      if (effective != status) {
+        booking['status'] = effective;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   static Future<List<Map<String, dynamic>>> getBookingHistory(
     int userId,
   ) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _bookingKey(userId);
     final rawBookings = prefs.getString(key);
-    if (rawBookings != null) return _decodeList(rawBookings);
+    if (rawBookings != null) {
+      final bookings = _decodeList(rawBookings);
+      if (_applyAutoCompletion(bookings)) {
+        await prefs.setString(key, jsonEncode(bookings));
+      }
+      return bookings;
+    }
 
     final now = DateTime.now();
     final sampleBookings = [
@@ -435,6 +503,13 @@ class LocalAppDataService {
       jsonEncode(matches.map((item) => item.toJson()).toList()),
     );
     return true;
+  }
+
+  static Future<Set<int>> getJoinedMatchIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('user_id') ?? 0;
+    final joined = prefs.getStringList('local_joined_matches_$userId') ?? [];
+    return joined.map(int.tryParse).whereType<int>().toSet();
   }
 
   static Future<Map<String, dynamic>> joinMatch(int matchId) async {

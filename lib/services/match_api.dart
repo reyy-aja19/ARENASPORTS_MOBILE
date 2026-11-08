@@ -29,6 +29,10 @@ class MatchApi {
     return LocalAppDataService.joinMatch(matchId);
   }
 
+  static Future<Set<int>> fetchJoinedMatchIds() async {
+    return LocalAppDataService.getJoinedMatchIds();
+  }
+
   /*
   |--------------------------------------------------------------------------
   | AMBIL SEMUA PESAN CHAT (GET) - BARU 💬

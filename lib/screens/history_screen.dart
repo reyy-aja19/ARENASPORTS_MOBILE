@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/local_app_data_service.dart';
@@ -15,12 +17,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
   late Future<List<dynamic>> _historyFuture;
   bool _isGuest = true;
   bool _isCheckingSession = true;
+  Timer? _statusTicker;
 
   @override
   void initState() {
     super.initState();
     _historyFuture = Future.value([]);
     _loadSession();
+
+    // Booking yang jamnya habis harus langsung pindah ke tab "Selesai"
+    // walau halaman ini sedang terbuka.
+    _statusTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _isGuest) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _statusTicker?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadSession() async {
@@ -97,15 +113,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
             final all = snapshot.data!;
 
+            // Status efektif: booking yang sudah lewat jam selesainya
+            // otomatis dianggap selesai.
             // Tab Aktif: Pending, DP, Lunas, atau sedang Check In
             final active = all.where((b) {
-              final st = b['status'].toString().toLowerCase();
+              final st = LocalAppDataService.effectiveStatus(
+                Map<String, dynamic>.from(b as Map),
+              );
               return st == 'pending' || st == 'lunas' || st == 'dp' || st == 'check in';
             }).toList();
 
             // Tab Selesai: Check Out, Batal, atau Expired
             final done = all.where((b) {
-              final st = b['status'].toString().toLowerCase();
+              final st = LocalAppDataService.effectiveStatus(
+                Map<String, dynamic>.from(b as Map),
+              );
               return st == 'check out' || st == 'selesai' || st == 'batal' || st == 'expired';
             }).toList();
 
@@ -132,7 +154,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
       itemCount: bookings.length,
       itemBuilder: (context, i) {
         final b = bookings[i];
-        String status = b['status'].toString().toLowerCase();
+        String status = LocalAppDataService.effectiveStatus(
+          Map<String, dynamic>.from(b as Map),
+        );
         
         Color statusColor = Colors.grey;
 
@@ -156,7 +180,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Widget _historyCard(dynamic booking, Color statusColor) {
-    String rawStatus = booking['status'] ?? 'pending';
+    String rawStatus = LocalAppDataService.effectiveStatus(
+      Map<String, dynamic>.from(booking as Map),
+    );
     String displayStatus = rawStatus;
 
     // Menyamakan teks tampilan status dengan web admin

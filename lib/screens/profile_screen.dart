@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../widgets/app_dialog.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -88,29 +90,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text('Konfirmasi Keluar'),
-          content: const Text('Apakah Anda yakin ingin keluar?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              onPressed: _handleLogout,
-              child: const Text('Keluar'),
-            ),
-          ],
-        );
-      },
+  void _showLogoutDialog() async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: 'Konfirmasi Keluar',
+      message: 'Apakah Anda yakin ingin keluar dari akun ini?',
+      icon: Icons.logout_rounded,
+      confirmLabel: 'Keluar',
+      destructive: true,
     );
+
+    if (confirmed && mounted) _handleLogout();
   }
 
   String _getInitials(String name) {
@@ -135,162 +125,189 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: CircularProgressIndicator(color: Color(0xFF00A32A)),
             )
           : _isGuest
-              ? _buildGuestProfile()
-              : SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.only(
-                          top: 60,
-                          bottom: 24,
-                          left: 20,
-                          right: 20,
-                        ),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF00A32A), Color(0xFF0D8540)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+          ? _buildGuestProfile()
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.only(
+                      top: 60,
+                      bottom: 24,
+                      left: 20,
+                      right: 20,
+                    ),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF00A32A), Color(0xFF0D8540)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.only(
+                        bottomLeft: Radius.circular(32),
+                        bottomRight: Radius.circular(32),
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.edit, color: Colors.white),
+                              onPressed: () async {
+                                final result = await Navigator.pushNamed(
+                                  context,
+                                  '/settings',
+                                );
+                                if (result == true) {
+                                  _fetchUserProfile();
+                                }
+                              },
+                            ),
                           ),
-                          borderRadius: BorderRadius.only(
-                            bottomLeft: Radius.circular(32),
-                            bottomRight: Radius.circular(32),
-                          ),
                         ),
-                        child: Stack(
+                        Column(
                           children: [
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: IconButton(
-                                  icon: const Icon(Icons.edit, color: Colors.white),
-                                  onPressed: () async {
-                                    final result = await Navigator.pushNamed(context, '/settings');
-                                    if (result == true) {
-                                      _fetchUserProfile();
-                                    }
-                                  },
-                                ),
+                            CircleAvatar(
+                              radius: 48,
+                              backgroundColor: Colors.white,
+                              backgroundImage: _avatarImageProvider(),
+                              child: _avatarImageProvider() == null
+                                  ? Text(
+                                      _getInitials(userName),
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF00A32A),
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 22,
                               ),
                             ),
-                            Column(
-                              children: [
-                                CircleAvatar(
-                                  radius: 48,
-                                  backgroundColor: Colors.white,
-                                  backgroundImage: _avatarImageProvider(),
-                                  child: _avatarImageProvider() == null
-                                      ? Text(
-                                          _getInitials(userName),
-                                          style: const TextStyle(
-                                            fontSize: 28,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF00A32A),
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  userName,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 22,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  userEmail,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                              ],
+                            const SizedBox(height: 4),
+                            Text(
+                              userEmail,
+                              style: const TextStyle(color: Colors.white70),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 18),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildStatCard(
-                                title: 'Poin',
-                                value: '$userPoints',
-                                icon: Icons.stars,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildStatCard(
-                                title: 'Status',
-                                value: 'Aktif',
-                                icon: Icons.verified,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Column(
-                          children: [
-                            _buildMenuItem(Icons.person_outline, 'Ubah Profil', () async {
-                              final result = await Navigator.pushNamed(context, '/settings');
-                              if (result == true) _fetchUserProfile();
-                            }),
-                            _buildMenuItem(Icons.lock_outline, 'Ubah Password', () {
-                              Navigator.pushNamed(context, '/change-password');
-                            }),
-                            _buildMenuItem(Icons.receipt_long_outlined, 'Riwayat Booking', () {
-                              Navigator.pushNamed(context, '/history');
-                            }),
-                            _buildMenuItem(Icons.storefront_outlined, 'Tambah Venue', () {
-                              Navigator.pushNamed(context, '/request-admin');
-                            }),
-                            _buildMenuItem(Icons.description_outlined, 'Syarat dan Ketentuan', () {
-                              Navigator.pushNamed(context, '/terms');
-                            }),
-                            _buildMenuItem(Icons.privacy_tip_outlined, 'Kebijakan Privasi', () {
-                              Navigator.pushNamed(context, '/privacy');
-                            }),
-                            const SizedBox(height: 18),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 52,
-                              child: ElevatedButton.icon(
-                                onPressed: _showLogoutDialog,
-                                icon: const Icon(Icons.logout, color: Colors.red),
-                                label: const Text(
-                                  'Keluar dari Akun',
-                                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFFF0F0),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 30),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            title: 'Poin',
+                            value: '$userPoints',
+                            icon: Icons.stars,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildStatCard(
+                            title: 'Status',
+                            value: 'Aktif',
+                            icon: Icons.verified,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      children: [
+                        _buildMenuItem(
+                          Icons.person_outline,
+                          'Ubah Profil',
+                          () async {
+                            final result = await Navigator.pushNamed(
+                              context,
+                              '/settings',
+                            );
+                            if (result == true) _fetchUserProfile();
+                          },
+                        ),
+                        _buildMenuItem(Icons.lock_outline, 'Ubah Password', () {
+                          Navigator.pushNamed(context, '/change-password');
+                        }),
+                        _buildMenuItem(
+                          Icons.receipt_long_outlined,
+                          'Riwayat Booking',
+                          () {
+                            Navigator.pushNamed(context, '/history');
+                          },
+                        ),
+                        _buildMenuItem(
+                          Icons.storefront_outlined,
+                          'Tambah Venue',
+                          () {
+                            Navigator.pushNamed(context, '/request-admin');
+                          },
+                        ),
+                        _buildMenuItem(
+                          Icons.description_outlined,
+                          'Syarat dan Ketentuan',
+                          () {
+                            Navigator.pushNamed(context, '/terms');
+                          },
+                        ),
+                        _buildMenuItem(
+                          Icons.privacy_tip_outlined,
+                          'Kebijakan Privasi',
+                          () {
+                            Navigator.pushNamed(context, '/privacy');
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: _showLogoutDialog,
+                            icon: const Icon(Icons.logout, color: Colors.red),
+                            label: const Text(
+                              'Keluar dari Akun',
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFFF0F0),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                ],
+              ),
+            ),
     );
   }
 
@@ -353,7 +370,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.account_circle_outlined, size: 72, color: Color(0xFF00A32A)),
+            const Icon(
+              Icons.account_circle_outlined,
+              size: 72,
+              color: Color(0xFF00A32A),
+            ),
             const SizedBox(height: 18),
             const Text(
               'Kamu belum login',
@@ -427,11 +448,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           child: Icon(icon, color: const Color(0xFF00A32A), size: 20),
         ),
-        title: Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          size: 15,
+          color: Colors.grey,
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 15, color: Colors.grey),
         onTap: onTap,
       ),
     );

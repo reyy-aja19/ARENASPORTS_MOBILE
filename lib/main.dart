@@ -41,6 +41,33 @@ class SportsFieldApp extends StatelessWidget {
           foregroundColor: Colors.black,
           elevation: 0,
         ),
+        dialogTheme: DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          titleTextStyle: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF1E2A2B),
+          ),
+          contentTextStyle: TextStyle(
+            fontSize: 14,
+            height: 1.45,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          contentTextStyle: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ),
       initialRoute: '/',
       routes: {
