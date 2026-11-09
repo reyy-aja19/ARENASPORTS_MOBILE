@@ -29,7 +29,20 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _isLoading = false;
 
-  String paymentMethod = 'Midtrans Sandbox';
+  // 'Midtrans' = pembayaran online via Midtrans, 'Cash' = bayar di tempat.
+  String paymentMethod = 'Midtrans';
+
+  String get _jamTampil => widget.jam
+      .split(',')
+      .map((t) => t.trim())
+      .where((t) => t.isNotEmpty)
+      .join('  •  ');
+
+  int get _durasiJam => widget.jam
+      .split(',')
+      .map((t) => t.trim())
+      .where((t) => t.isNotEmpty)
+      .length;
 
   Future<void> _handlePayment() async {
     if (!await requireAuthenticatedUser(context) || !mounted) return;
@@ -59,7 +72,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final hourEnd = int.parse(jamTerakhir.split(':').first);
       final jamSelesai = '${(hourEnd + 1).toString().padLeft(2, '0')}:00';
 
-      if (paymentMethod == 'Midtrans Sandbox') {
+      if (paymentMethod == 'Midtrans') {
         final transaction = await MidtransPaymentService().createTransaction(
           amount: cleanPrice.round(),
           itemName: widget.namaLapangan,
@@ -88,7 +101,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final result = await apiService.postBooking(
         userId: userId,
         lapanganId: widget.lapanganId,
-        fieldName: widget.namaLapangan, // Ensure fieldName is passed
+        fieldName: widget.namaLapangan,
         paymentMethod: paymentMethod,
         date: widget.tanggal,
         startTime: jamMulai,
@@ -99,7 +112,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       if (!mounted) return;
 
       if (result['status'] == true) {
-        if (paymentMethod == 'Midtrans Sandbox') {
+        if (paymentMethod == 'Midtrans') {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
@@ -154,7 +167,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text(
           "Konfirmasi Pesanan",
@@ -165,57 +178,142 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         leading: const BackButton(color: Colors.black),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Ringkasan Pesanan",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 15),
-
+            // --- Ringkasan Pesanan ---
+            _sectionTitle("Ringkasan Pesanan", Icons.receipt_long_outlined),
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
               child: Column(
                 children: [
-                  _rowInfo("Lapangan", widget.namaLapangan),
-                  const Divider(),
-                  _rowInfo("Tanggal", widget.tanggal),
-                  const Divider(),
-                  _rowInfo("Jam", widget.jam),
-                  const Divider(),
-                  _rowInfo("Total", widget.harga, isPrice: true),
+                  _summaryRow(
+                    Icons.sports_soccer_outlined,
+                    "Lapangan",
+                    widget.namaLapangan,
+                  ),
+                  _divider(),
+                  _summaryRow(
+                    Icons.calendar_today_outlined,
+                    "Tanggal",
+                    widget.tanggal,
+                  ),
+                  _divider(),
+                  _summaryRow(
+                    Icons.access_time_outlined,
+                    "Jam",
+                    _jamTampil,
+                  ),
+                  _divider(),
+                  _summaryRow(
+                    Icons.timelapse_outlined,
+                    "Durasi",
+                    "$_durasiJam jam",
+                  ),
+                  _divider(),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEAF7EE),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.payments_outlined,
+                            size: 16,
+                            color: Color(0xFF00A32A),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            "Total Pembayaran",
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1E2A2B),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          widget.harga,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF00A32A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            const Text(
-              "Pilih Metode Pembayaran",
-              style: TextStyle(fontWeight: FontWeight.bold),
+            // --- Metode Pembayaran ---
+            _sectionTitle("Metode Pembayaran", Icons.account_balance_wallet_outlined),
+            const SizedBox(height: 12),
+            _paymentOption(
+              value: 'Midtrans',
+              title: 'Midtrans',
+              subtitle: 'Pembayaran online (QRIS, transfer, e-wallet)',
+              icon: Icons.credit_card_rounded,
+              accent: const Color(0xFF2563EB),
+            ),
+            const SizedBox(height: 10),
+            _paymentOption(
+              value: 'Cash',
+              title: 'Bayar di Tempat',
+              subtitle: 'Bayar langsung saat datang ke venue',
+              icon: Icons.storefront_outlined,
+              accent: const Color(0xFF00A32A),
             ),
 
-            RadioGroup<String>(
-              groupValue: paymentMethod,
-              onChanged: (value) {
-                if (value != null) setState(() => paymentMethod = value);
-              },
-              child: Column(
+            const SizedBox(height: 16),
+
+            // --- Catatan keamanan ---
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF7EE),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
                 children: [
-                  const RadioListTile<String>(
-                    value: 'Midtrans Sandbox',
-                    title: Text('Midtrans Sandbox'),
-                    subtitle: Text('Mode uji coba, tidak ada pembayaran nyata'),
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    size: 16,
+                    color: Color(0xFF00A32A),
                   ),
-                  const RadioListTile<String>(
-                    value: 'Cash',
-                    title: Text('Bayar di Tempat'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "Transaksi aman dan terenkripsi. Pilih metode pembayaran yang kamu inginkan.",
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        height: 1.35,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -223,41 +321,226 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ],
         ),
       ),
-
       bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(20),
-        child: ElevatedButton(
-          onPressed: _isLoading ? null : _handlePayment,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF00A32A),
-            minimumSize: const Size(double.infinity, 55),
-          ),
-          child: _isLoading
-              ? const CircularProgressIndicator(color: Colors.white)
-              : Text(
-                  paymentMethod == 'Midtrans Sandbox'
-                      ? 'Lanjut ke Sandbox'
-                      : 'Konfirmasi Booking',
-                  style: TextStyle(color: Colors.white),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 12,
+              offset: const Offset(0, -4),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            width: double.infinity,
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _handlePayment,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : Icon(
+                      paymentMethod == 'Midtrans'
+                          ? Icons.credit_card_rounded
+                          : Icons.storefront_outlined,
+                      size: 20,
+                    ),
+              label: Text(
+                _isLoading
+                    ? 'Memproses...'
+                    : (paymentMethod == 'Midtrans'
+                        ? 'Lanjut ke Pembayaran'
+                        : 'Konfirmasi Booking'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
                 ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A32A),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _rowInfo(String label, String value, {bool isPrice = false}) {
+  Widget _sectionTitle(String text, IconData icon) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label),
+        Icon(icon, size: 18, color: const Color(0xFF00A32A)),
+        const SizedBox(width: 8),
         Text(
-          value,
-          style: TextStyle(
+          text,
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
-            color: isPrice ? Colors.green : Colors.black,
+            fontSize: 16,
+            color: Color(0xFF1E2A2B),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _divider() => const Divider(height: 1, color: Color(0xFFEEF2EF));
+
+  Widget _summaryRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF7EE),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: const Color(0xFF00A32A)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1E2A2B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _paymentOption({
+    required String value,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accent,
+  }) {
+    final selected = paymentMethod == value;
+    return InkWell(
+      onTap: () => setState(() => paymentMethod = value),
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? accent.withValues(alpha: 0.05) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? accent : Colors.grey.shade200,
+            width: selected ? 1.6 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: accent.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: accent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: Color(0xFF1E2A2B),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Indikator pilihan (custom, tidak pakai Radio widget yang deprecated).
+            Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: selected ? accent : Colors.grey.shade400,
+                  width: 2,
+                ),
+              ),
+              child: selected
+                  ? Center(
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: accent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

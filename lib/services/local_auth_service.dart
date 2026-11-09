@@ -31,8 +31,7 @@ class LocalAuthService {
 
     if (users.any(
       (user) =>
-          user['email'] == normalizedEmail ||
-          user['phone'] == normalizedPhone,
+          user['email'] == normalizedEmail || user['phone'] == normalizedPhone,
     )) {
       throw const LocalAuthException('Email atau nomor HP sudah terdaftar.');
     }
@@ -45,10 +44,12 @@ class LocalAuthService {
       salt,
       _passwordIterations.toString(),
     ]);
-    final id = users.fold<int>(0, (maxId, user) {
-      final currentId = user['id'];
-      return currentId is int && currentId > maxId ? currentId : maxId;
-    }) + 1;
+    final id =
+        users.fold<int>(0, (maxId, user) {
+          final currentId = user['id'];
+          return currentId is int && currentId > maxId ? currentId : maxId;
+        }) +
+        1;
 
     final storedUser = <String, dynamic>{
       'id': id,
@@ -137,6 +138,11 @@ class LocalAuthService {
         .whereType<Map>()
         .map((user) => Map<String, dynamic>.from(user))
         .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getAllUsers() async {
+    final prefs = await SharedPreferences.getInstance();
+    return _readUsers(prefs).map(_publicUser).toList();
   }
 
   static Map<String, dynamic> _publicUser(Map<String, dynamic> user) {

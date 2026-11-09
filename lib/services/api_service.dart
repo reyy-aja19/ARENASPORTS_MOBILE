@@ -72,9 +72,10 @@ class ApiService {
         deskripsi: deskripsi ?? '',
       ),
     );
+    final success = created > 0;
     return {
-      'status': created,
-      'message': created ? 'Match berhasil dibuat.' : 'Gagal membuat match.',
+      'status': success,
+      'message': success ? 'Match berhasil dibuat.' : 'Gagal membuat match.',
     };
   }
 

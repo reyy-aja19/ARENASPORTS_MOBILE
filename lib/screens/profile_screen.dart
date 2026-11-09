@@ -203,6 +203,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               userEmail,
                               style: const TextStyle(color: Colors.white70),
                             ),
+                            if ((userData?['phone']?.toString() ?? '')
+                                .isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                userData!['phone'].toString(),
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                            ],
                           ],
                         ),
                       ],

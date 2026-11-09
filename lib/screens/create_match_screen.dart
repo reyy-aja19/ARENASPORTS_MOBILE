@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/match_model.dart';
 import '../services/match_api.dart';
+import '../services/local_app_data_service.dart';
 import '../widgets/app_dialog.dart';
 
 class CreateMatchScreen extends StatefulWidget {
@@ -184,11 +186,20 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       // Tampilkan indikator loading sederhana saat memproses jaringan
       showAppLoadingDialog(context, message: 'Membuat open match...');
 
-      bool success = await MatchApi.createMatch(newMatch);
+      final newMatchId = await MatchApi.createMatch(newMatch);
 
       if (mounted) Navigator.pop(context); // Tutup loading dialog
 
-      if (success) {
+      if (newMatchId > 0) {
+        final prefs = await SharedPreferences.getInstance();
+        final userId = prefs.getInt('user_id') ?? 0;
+        await LocalAppDataService.markMatchCreatedByUser(
+          userId,
+          newMatchId,
+          bookingId: _bookingId,
+        );
+        MatchApi.bumpData();
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -196,10 +207,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.pop(
-            context,
-            true,
-          ); // Kembali ke halaman riwayat sewa dan refresh data
+          Navigator.pop(context, true); // Kembali ke halaman riwayat sewa
         }
       } else {
         if (mounted) {
@@ -279,8 +287,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 ),
                 validator: (v) {
                   if (v!.isEmpty) return "Isi jumlah kebutuhan pemain";
-                  if (int.tryParse(v) == null || int.parse(v) <= 0)
+                  if (int.tryParse(v) == null || int.parse(v) <= 0) {
                     return "Masukkan angka yang valid";
+                  }
                   return null;
                 },
               ),

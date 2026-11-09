@@ -19,12 +19,25 @@ class _MatchScreenState extends State<MatchScreen> {
   bool _isGuest = true;
   bool _isCheckingSession = true;
   Set<int> _joinedMatchIds = {};
+  Set<int> _createdMatchIds = {};
 
   @override
   void initState() {
     super.initState();
     futureMatches = Future.value([]);
     _loadSession();
+    MatchApi.dataRevision.addListener(_onMatchDataChanged);
+  }
+
+  @override
+  void dispose() {
+    MatchApi.dataRevision.removeListener(_onMatchDataChanged);
+    super.dispose();
+  }
+
+  void _onMatchDataChanged() {
+    if (!mounted || _isGuest) return;
+    _reloadMatchData();
   }
 
   Future<void> _loadSession() async {
@@ -39,21 +52,24 @@ class _MatchScreenState extends State<MatchScreen> {
       if (!isGuest) futureMatches = MatchApi.fetchMatches();
     });
 
-    if (!isGuest) _loadJoinedMatchIds();
+    if (!isGuest) _reloadMatchData();
   }
 
-  Future<void> _loadJoinedMatchIds() async {
-    final ids = await MatchApi.fetchJoinedMatchIds();
+  Future<void> _reloadMatchData() async {
+    final matches = await MatchApi.fetchMatches();
+    final joined = await MatchApi.fetchJoinedMatchIds();
+    final created = await MatchApi.fetchCreatedMatchIds();
     if (!mounted) return;
-    setState(() => _joinedMatchIds = ids);
+    setState(() {
+      futureMatches = Future.value(matches);
+      _joinedMatchIds = joined;
+      _createdMatchIds = created;
+    });
   }
 
   void _refreshData() {
     if (_isGuest) return;
-    setState(() {
-      futureMatches = MatchApi.fetchMatches();
-    });
-    _loadJoinedMatchIds();
+    _reloadMatchData();
   }
 
   Future<void> _handleJoin(MatchModel match) async {
@@ -201,6 +217,8 @@ class _MatchScreenState extends State<MatchScreen> {
   Widget _matchCard(MatchModel match) {
     bool isFull = match.jumlahBergabung >= match.jumlahPemain;
     bool isJoined = _joinedMatchIds.contains(match.id);
+    bool isCreator = _createdMatchIds.contains(match.id);
+    bool canChat = isJoined || isCreator;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
@@ -275,33 +293,89 @@ class _MatchScreenState extends State<MatchScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: (isFull || isJoined)
+                      onPressed: (isFull || isJoined || isCreator)
                           ? null
                           : () => _handleJoin(match),
                       icon: Icon(
-                        isJoined
-                            ? Icons.check_circle_outline
-                            : Icons.group_add_outlined,
+                        isCreator
+                            ? Icons.workspace_premium_rounded
+                            : (isJoined
+                                  ? Icons.check_circle_outline
+                                  : Icons.group_add_outlined),
                         size: 18,
                       ),
                       label: Text(
-                        isJoined
-                            ? "SUDAH BERGABUNG"
-                            : (isFull ? "MATCH PENUH" : "BERGABUNG DI MATCH"),
+                        isCreator
+                            ? "ANDA PEMBUAT MATCH"
+                            : (isJoined
+                                  ? "SUDAH BERGABUNG"
+                                  : (isFull
+                                        ? "MATCH PENUH"
+                                        : "BERGABUNG DI MATCH")),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00A32A),
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: isJoined
+                        disabledBackgroundColor: (isJoined || isCreator)
                             ? const Color(0xFF9E9E9E)
                             : Colors.grey.shade300,
-                        disabledForegroundColor: isJoined
+                        disabledForegroundColor: (isJoined || isCreator)
                             ? Colors.white
                             : Colors.grey.shade600,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                         elevation: 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        if (!canChat) {
+                          showAppInfoDialog(
+                            context,
+                            title: 'Belum Bergabung',
+                            message:
+                                'Gabung ke open match "${match.title}" dulu untuk masuk grup chat.',
+                            icon: Icons.lock_outline_rounded,
+                            accent: const Color(0xFFF59E0B),
+                          );
+                          return;
+                        }
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatScreen(
+                              matchId: match.id,
+                              matchTitle: match.title,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Icon(
+                        canChat
+                            ? Icons.chat_bubble_outline
+                            : Icons.lock_outline,
+                        size: 18,
+                      ),
+                      label: Text(
+                        canChat
+                            ? "MASUK GRUP CHAT"
+                            : "MASUK GRUP CHAT (BERGABUNG DULU)",
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: canChat
+                            ? Colors.blue.shade700
+                            : Colors.grey.shade400,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
@@ -328,6 +402,8 @@ class _MatchScreenState extends State<MatchScreen> {
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
           final isJoined = _joinedMatchIds.contains(match.id);
+          final isCreator = _createdMatchIds.contains(match.id);
+          final canChat = isJoined || isCreator;
 
           return Padding(
             padding: const EdgeInsets.all(25),
@@ -398,30 +474,36 @@ class _MatchScreenState extends State<MatchScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: (isJoined || isFull)
+                      onPressed: (isJoined || isCreator || isFull)
                           ? null
                           : () async {
                               await _handleJoin(match);
                               if (sheetContext.mounted) setSheetState(() {});
                             },
                       icon: Icon(
-                        isJoined
-                            ? Icons.check_circle_outline
-                            : Icons.group_add_outlined,
+                        isCreator
+                            ? Icons.workspace_premium_rounded
+                            : (isJoined
+                                  ? Icons.check_circle_outline
+                                  : Icons.group_add_outlined),
                         size: 18,
                       ),
                       label: Text(
-                        isJoined
-                            ? "SUDAH BERGABUNG"
-                            : (isFull ? "MATCH PENUH" : "BERGABUNG DI MATCH"),
+                        isCreator
+                            ? "ANDA PEMBUAT MATCH"
+                            : (isJoined
+                                  ? "SUDAH BERGABUNG"
+                                  : (isFull
+                                        ? "MATCH PENUH"
+                                        : "BERGABUNG DI MATCH")),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00A32A),
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: isJoined
+                        disabledBackgroundColor: (isJoined || isCreator)
                             ? const Color(0xFF9E9E9E)
                             : Colors.grey.shade300,
-                        disabledForegroundColor: isJoined
+                        disabledForegroundColor: (isJoined || isCreator)
                             ? Colors.white
                             : Colors.grey.shade600,
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -439,7 +521,7 @@ class _MatchScreenState extends State<MatchScreen> {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        if (!isJoined) {
+                        if (!canChat) {
                           showAppInfoDialog(
                             sheetContext,
                             title: 'Belum Bergabung',
@@ -463,17 +545,17 @@ class _MatchScreenState extends State<MatchScreen> {
                         );
                       },
                       icon: Icon(
-                        isJoined
+                        canChat
                             ? Icons.chat_bubble_outline
                             : Icons.lock_outline,
                       ),
                       label: Text(
-                        isJoined
+                        canChat
                             ? "MASUK GRUP CHAT MATCH"
                             : "MASUK GRUP CHAT (BERGABUNG DULU)",
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isJoined
+                        backgroundColor: canChat
                             ? Colors.blue.shade700
                             : Colors.grey.shade400,
                         foregroundColor: Colors.white,

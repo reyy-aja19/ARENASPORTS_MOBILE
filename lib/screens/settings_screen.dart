@@ -18,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final nameController = TextEditingController();
   final emailController = TextEditingController();
+  final phoneController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
   String? _avatarPath;
@@ -41,8 +42,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       nameController.text = user['name']?.toString() ?? 'User';
       emailController.text = user['email']?.toString() ?? 'user@gmail.com';
+      phoneController.text = user['phone']?.toString() ?? '';
       _avatarUrl = user['avatar']?.toString();
-      if ((_avatarUrl == null || _avatarUrl!.isEmpty) && user['profile_photo_url'] != null) {
+      if ((_avatarUrl == null || _avatarUrl!.isEmpty) &&
+          user['profile_photo_url'] != null) {
         _avatarUrl = user['profile_photo_url'].toString();
       }
     });
@@ -106,7 +109,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final extension = sourcePath.contains('.')
         ? sourcePath.split('.').last.toLowerCase()
         : 'jpg';
-    final safeExtension = const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)
+    final safeExtension =
+        const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)
         ? extension
         : 'jpg';
     final destinationPath =
@@ -134,15 +138,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final rawUser = prefs.getString('user');
-      final user = rawUser == null ? <String, dynamic>{} : Map<String, dynamic>.from(jsonDecode(rawUser));
+      final user = rawUser == null
+          ? <String, dynamic>{}
+          : Map<String, dynamic>.from(jsonDecode(rawUser));
 
-        final avatarValue = _avatarPath != null
+      final avatarValue = _avatarPath != null
           ? await _saveAvatarLocally(_avatarPath!)
           : _avatarUrl ?? user['avatar'] ?? user['profile_photo_url'];
 
       await LocalAuthService.updateCurrentUser({
         'name': name,
         'email': email.toLowerCase(),
+        'phone': phoneController.text.trim(),
         'avatar': avatarValue,
         'profile_photo_url': avatarValue,
       });
@@ -187,6 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     nameController.dispose();
     emailController.dispose();
+    phoneController.dispose();
     super.dispose();
   }
 
@@ -194,7 +202,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final initials = nameController.text.trim().isEmpty
         ? 'U'
-        : nameController.text.trim().split(RegExp(r'\s+')).take(2).map((e) => e[0]).join().toUpperCase();
+        : nameController.text
+              .trim()
+              .split(RegExp(r'\s+'))
+              .take(2)
+              .map((e) => e[0])
+              .join()
+              .toUpperCase();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8),
@@ -250,7 +264,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                           child: IconButton(
                             onPressed: _pickAvatar,
-                            icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
+                            icon: const Icon(
+                              Icons.camera_alt,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                         ),
                       ],
@@ -300,6 +318,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         border: OutlineInputBorder(),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'No. HP',
+                        prefixIcon: Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
                     const SizedBox(height: 18),
                     SizedBox(
                       width: double.infinity,
@@ -314,7 +342,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         child: _isSaving
-                            ? const CircularProgressIndicator(color: Colors.white)
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
                             : const Text(
                                 'Simpan Perubahan',
                                 style: TextStyle(

@@ -125,7 +125,7 @@ void main() {
       ),
     );
 
-    expect(created, isTrue);
+    expect(created, greaterThan(0));
     expect(
       (await LocalAppDataService.getMatches()).any(
         (match) => match.title == 'Latihan Futsal Malam',
@@ -216,6 +216,46 @@ void main() {
         date: '2026-11-20',
       ),
       isEmpty,
+    );
+  });
+
+  test('match yang dibuat user tercatat sebagai pembuat', () async {
+    final user = await LocalAuthService.register(
+      name: 'Creator',
+      email: 'creator@example.com',
+      phone: '08123456789',
+      password: 'Password123',
+    );
+    final userId = user['id'] as int;
+
+    final matchId = await LocalAppDataService.createMatch(
+      MatchModel(
+        id: 0,
+        title: 'Match Buatan Saya',
+        jenis: 'Futsal',
+        tanggal: '2026-12-10',
+        startTime: '20:00',
+        endTime: '21:00',
+        jumlahPemain: 10,
+        jumlahBergabung: 1,
+        status: 'Open',
+        deskripsi: 'Test creator.',
+      ),
+    );
+
+    await LocalAppDataService.markMatchCreatedByUser(
+      userId,
+      matchId,
+      bookingId: 42,
+    );
+
+    expect(
+      await LocalAppDataService.getCreatedMatchIds(userId: userId),
+      contains(matchId),
+    );
+    expect(
+      await LocalAppDataService.getBookingsWithMatch(userId: userId),
+      contains(42),
     );
   });
 }

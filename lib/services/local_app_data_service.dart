@@ -476,7 +476,7 @@ class LocalAppDataService {
       ..sort((first, second) => first.tanggal.compareTo(second.tanggal));
   }
 
-  static Future<bool> createMatch(MatchModel match) async {
+  static Future<int> createMatch(MatchModel match) async {
     final prefs = await SharedPreferences.getInstance();
     final matches = await getMatches();
     final nextId =
@@ -502,7 +502,267 @@ class LocalAppDataService {
       'local_matches',
       jsonEncode(matches.map((item) => item.toJson()).toList()),
     );
+    return nextId;
+  }
+
+  static String _createdMatchesKey(int userId) =>
+      'local_created_matches_$userId';
+
+  static String _createdMatchBookingsKey(int userId) =>
+      'local_created_match_bookings_$userId';
+
+  /// Menandai bahwa [userId] telah membuat match dengan id [matchId].
+  /// Jika [bookingId] diberikan, booking tersebut juga ditandai sudah
+  /// memiliki open match.
+  static Future<void> markMatchCreatedByUser(
+    int userId,
+    int matchId, {
+    int? bookingId,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final created =
+        (prefs.getStringList(_createdMatchesKey(userId)) ?? []).toSet()
+          ..add('$matchId');
+    await prefs.setStringList(_createdMatchesKey(userId), created.toList());
+
+    if (bookingId != null && bookingId > 0) {
+      final bookings =
+          (prefs.getStringList(_createdMatchBookingsKey(userId)) ?? []).toSet()
+            ..add('$bookingId');
+      await prefs.setStringList(
+        _createdMatchBookingsKey(userId),
+        bookings.toList(),
+      );
+    }
+  }
+
+  static Future<Set<int>> getCreatedMatchIds({int? userId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = userId ?? prefs.getInt('user_id') ?? 0;
+    final ids = prefs.getStringList(_createdMatchesKey(uid)) ?? [];
+    return ids.map(int.tryParse).whereType<int>().toSet();
+  }
+
+  static Future<Set<int>> getBookingsWithMatch({int? userId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = userId ?? prefs.getInt('user_id') ?? 0;
+    final ids = prefs.getStringList(_createdMatchBookingsKey(uid)) ?? [];
+    return ids.map(int.tryParse).whereType<int>().toSet();
+  }
+
+  // ----------------------- TEMAN & CHAT LANGSUNG -----------------------
+
+  static String _friendsKey(int userId) => 'local_friends_$userId';
+
+  static String _dmKey(int a, int b) {
+    final x = a < b ? a : b;
+    final y = a < b ? b : a;
+    return 'local_dm_${x}_$y';
+  }
+
+  static Future<List<Map<String, dynamic>>> getFriends(int userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final ids = (prefs.getStringList(_friendsKey(userId)) ?? [])
+        .map(int.tryParse)
+        .whereType<int>()
+        .toSet();
+    final allUsers = await LocalAuthService.getAllUsers();
+    return allUsers.where((u) => ids.contains(u['id'])).toList();
+  }
+
+  static Future<bool> addFriend(int userId, int friendId) async {
+    if (userId == friendId) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final allUsers = await LocalAuthService.getAllUsers();
+    if (!allUsers.any((u) => u['id'] == friendId)) return false;
+
+    final ids = (prefs.getStringList(_friendsKey(userId)) ?? []).toSet();
+    if (ids.contains('$friendId')) return false;
+    ids.add('$friendId');
+    await prefs.setStringList(_friendsKey(userId), ids.toList());
     return true;
+  }
+
+  static Future<void> removeFriend(int userId, int friendId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final ids = (prefs.getStringList(_friendsKey(userId)) ?? []).toSet()
+      ..remove('$friendId');
+    await prefs.setStringList(_friendsKey(userId), ids.toList());
+  }
+
+  static Future<List<Map<String, dynamic>>> searchUsers(
+    int currentUserId,
+    String query,
+  ) async {
+    final allUsers = await LocalAuthService.getAllUsers();
+    final q = query.trim().toLowerCase();
+    return allUsers.where((u) {
+      if (u['id'] == currentUserId) return false;
+      if (q.isEmpty) return true;
+      final name = (u['name'] ?? '').toString().toLowerCase();
+      final email = (u['email'] ?? '').toString().toLowerCase();
+      final phone = (u['phone'] ?? '').toString().toLowerCase();
+      return name.contains(q) || email.contains(q) || phone.contains(q);
+    }).toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getDMMessages(
+    int userId,
+    int friendId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_dmKey(userId, friendId));
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return [];
+    return decoded
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+  }
+
+  static Future<void> sendDM(
+    int userId,
+    int friendId,
+    String text,
+    String senderName,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final msgs = await getDMMessages(userId, friendId);
+    msgs.add({
+      'senderId': userId,
+      'senderName': senderName,
+      'text': text.trim(),
+      'time': DateTime.now().toIso8601String(),
+    });
+    await prefs.setString(_dmKey(userId, friendId), jsonEncode(msgs));
+  }
+
+  // ----------------------- PERMINTAAN PERTEMANAN -----------------------
+
+  static const String _friendRequestsKey = 'local_friend_requests';
+
+  static Future<List<Map<String, dynamic>>> _readFriendRequests() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_friendRequestsKey);
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return [];
+    return decoded
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+  }
+
+  static Future<void> _writeFriendRequests(
+    List<Map<String, dynamic>> reqs,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_friendRequestsKey, jsonEncode(reqs));
+  }
+
+  static Future<String> sendFriendRequest(
+    int fromId,
+    String fromName,
+    int toId,
+    String toName,
+  ) async {
+    if (fromId == toId) return 'self';
+    final friends = await getFriends(fromId);
+    if (friends.any((f) => f['id'] == toId)) return 'friends';
+
+    final reqs = await _readFriendRequests();
+    if (reqs.any(
+      (r) =>
+          r['from'] == fromId &&
+          r['to'] == toId &&
+          r['status'] == 'pending',
+    )) {
+      return 'pending';
+    }
+
+    final newId =
+        reqs.fold<int>(
+          0,
+          (m, r) => (r['id'] as int? ?? 0) > m ? r['id'] as int : m,
+        ) +
+        1;
+    reqs.add({
+      'id': newId,
+      'from': fromId,
+      'fromName': fromName,
+      'to': toId,
+      'toName': toName,
+      'status': 'pending',
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    await _writeFriendRequests(reqs);
+    return 'sent';
+  }
+
+  static Future<List<Map<String, dynamic>>> getIncomingFriendRequests(
+    int userId,
+  ) async {
+    final reqs = await _readFriendRequests();
+    return reqs
+        .where((r) => r['to'] == userId && r['status'] == 'pending')
+        .toList();
+  }
+
+  static Future<List<Map<String, dynamic>>> getOutgoingFriendRequests(
+    int userId,
+  ) async {
+    final reqs = await _readFriendRequests();
+    return reqs
+        .where((r) => r['from'] == userId && r['status'] == 'pending')
+        .toList();
+  }
+
+  static Future<void> acceptFriendRequest(int requestId, int userId) async {
+    final reqs = await _readFriendRequests();
+    final idx = reqs.indexWhere((r) => r['id'] == requestId);
+    if (idx < 0) return;
+    if (reqs[idx]['to'] != userId) return;
+    reqs[idx]['status'] = 'accepted';
+    await _writeFriendRequests(reqs);
+
+    final fromId = reqs[idx]['from'] as int;
+    await addFriend(userId, fromId);
+    await addFriend(fromId, userId);
+  }
+
+  static Future<void> rejectFriendRequest(int requestId, int userId) async {
+    final reqs = await _readFriendRequests();
+    final idx = reqs.indexWhere((r) => r['id'] == requestId);
+    if (idx < 0) return;
+    if (reqs[idx]['to'] != userId) return;
+    reqs[idx]['status'] = 'rejected';
+    await _writeFriendRequests(reqs);
+  }
+
+  static Future<String> friendRequestStatus(int fromId, int toId) async {
+    if (fromId == toId) return 'self';
+    final friends = await getFriends(fromId);
+    if (friends.any((f) => f['id'] == toId)) return 'friends';
+    final reqs = await _readFriendRequests();
+    if (reqs.any(
+      (r) =>
+          r['from'] == fromId &&
+          r['to'] == toId &&
+          r['status'] == 'pending',
+    )) {
+      return 'pending_out';
+    }
+    if (reqs.any(
+      (r) =>
+          r['from'] == toId &&
+          r['to'] == fromId &&
+          r['status'] == 'pending',
+    )) {
+      return 'pending_in';
+    }
+    return 'none';
   }
 
   static Future<Set<int>> getJoinedMatchIds() async {

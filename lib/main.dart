@@ -15,6 +15,7 @@ import 'screens/history_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/point_screen.dart';
 import 'screens/match_screen.dart';
+import 'screens/friends_screen.dart';
 import 'screens/success_auth_screen.dart';
 
 // Catatan: ScheduleScreen dan CheckoutScreen tidak di-import di sini
@@ -109,11 +110,12 @@ class _MainNavigationState extends State<MainNavigation> {
       HomeScreen(
         onProfileTap: () {
           setState(() {
-            _index = 4; // Berpindah ke tab Profil (index 4)
+            _index = 5; // Berpindah ke tab Profil
           });
         },
       ),
       const MatchScreen(),
+      const FriendsScreen(),
       const ProfileScreen(),
     ];
 
@@ -152,6 +154,11 @@ class _MainNavigationState extends State<MainNavigation> {
             icon: Icon(Icons.sports_tennis_outlined),
             activeIcon: Icon(Icons.sports_tennis),
             label: 'Match',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.chat_bubble_outline),
+            activeIcon: Icon(Icons.chat_bubble),
+            label: 'Chat',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
