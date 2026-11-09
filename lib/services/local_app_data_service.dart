@@ -39,6 +39,8 @@ class LocalAppDataService {
           'Satu lapangan futsal dengan rumput sintetis dan pencahayaan maksimal.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Ruang ganti', 'Wi‑Fi'],
+      latitude: -6.3265,
+      longitude: 108.3250,
     ),
     FieldModel(
       id: 2,
@@ -81,6 +83,8 @@ class LocalAppDataService {
           'Enam lapangan badminton indoor dengan lantai anti selip dan area pemanasan.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Kantin', 'Air minum'],
+      latitude: -6.3265,
+      longitude: 108.3250,
     ),
     FieldModel(
       id: 3,
@@ -122,6 +126,8 @@ class LocalAppDataService {
       description: 'Enam lapangan futsal untuk latihan tim dan pertandingan.',
       status: 'available',
       fasilitas: ['Parkir', 'Kamar mandi', 'Mushola', 'Cafe'],
+      latitude: -6.3300,
+      longitude: 108.3200,
     ),
   ];
 
@@ -421,6 +427,8 @@ class LocalAppDataService {
     );
     await prefs.setString(_bookingKey(userId), jsonEncode(bookings));
 
+    await _incrementFieldBookingCount(fieldId);
+
     final user = await LocalAuthService.currentUser();
     final currentPoints = (user?['points'] as num?)?.toInt() ?? 0;
     final earnedPoints = hours * 10;
@@ -549,6 +557,128 @@ class LocalAppDataService {
     final uid = userId ?? prefs.getInt('user_id') ?? 0;
     final ids = prefs.getStringList(_createdMatchBookingsKey(uid)) ?? [];
     return ids.map(int.tryParse).whereType<int>().toSet();
+  }
+
+  // ----------------------- RATING LAPANGAN -----------------------
+
+  static const String _ratingsKey = 'local_field_ratings';
+
+  static Future<List<Map<String, dynamic>>> _readRatings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_ratingsKey);
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return [];
+    return decoded
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
+  }
+
+  static Future<void> _writeRatings(List<Map<String, dynamic>> ratings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_ratingsKey, jsonEncode(ratings));
+  }
+
+  static Future<Map<String, dynamic>?> getUserRatingForBooking(
+    int bookingId,
+  ) async {
+    final ratings = await _readRatings();
+    for (final r in ratings) {
+      if (r['bookingId'] == bookingId) return r;
+    }
+    return null;
+  }
+
+  static Future<bool> hasRatedBooking(int bookingId) async {
+    return (await getUserRatingForBooking(bookingId)) != null;
+  }
+
+  static Future<bool> submitRating({
+    required int userId,
+    required int fieldId,
+    required int bookingId,
+    required int rating,
+    String comment = '',
+  }) async {
+    if (rating < 1 || rating > 5) return false;
+    final ratings = await _readRatings();
+    if (ratings.any((r) => r['bookingId'] == bookingId)) return false;
+    ratings.add({
+      'id': ratings.fold<int>(0, (m, r) => (r['id'] as int? ?? 0) > m ? r['id'] as int : m) + 1,
+      'userId': userId,
+      'fieldId': fieldId,
+      'bookingId': bookingId,
+      'rating': rating,
+      'comment': comment.trim(),
+      'createdAt': DateTime.now().toIso8601String(),
+    });
+    await _writeRatings(ratings);
+    return true;
+  }
+
+  static Future<List<Map<String, dynamic>>> getFieldRatings(int fieldId) async {
+    final ratings = await _readRatings();
+    return ratings.where((r) => r['fieldId'] == fieldId).toList()
+      ..sort((a, b) => (b['createdAt']?.toString() ?? '').compareTo(a['createdAt']?.toString() ?? ''));
+  }
+
+  static Future<double> getAverageRating(int fieldId) async {
+    final ratings = await getFieldRatings(fieldId);
+    if (ratings.isEmpty) return 0;
+    final sum = ratings.fold<int>(0, (s, r) => s + (r['rating'] as int? ?? 0));
+    return sum / ratings.length;
+  }
+
+  static Future<int> getRatingCount(int fieldId) async {
+    return (await getFieldRatings(fieldId)).length;
+  }
+
+  static Future<List<Map<String, dynamic>>> getUserRatings(int userId) async {
+    final ratings = await _readRatings();
+    return ratings.where((r) => r['userId'] == userId).toList();
+  }
+
+  // ----------------------- LOKASI & FAVORIT -----------------------
+
+  static const String _fieldBookingCountsKey = 'local_field_booking_counts';
+
+  static Future<Map<int, int>> getFieldBookingCounts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_fieldBookingCountsKey);
+    if (raw == null) return {};
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return {};
+    final result = <int, int>{};
+    decoded.forEach((k, v) {
+      final id = int.tryParse(k.toString());
+      final count = (v as num?)?.toInt();
+      if (id != null && count != null) result[id] = count;
+    });
+    return result;
+  }
+
+  static Future<void> _incrementFieldBookingCount(int fieldId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final counts = await getFieldBookingCounts();
+    counts[fieldId] = (counts[fieldId] ?? 0) + 1;
+    await prefs.setString(
+      _fieldBookingCountsKey,
+      jsonEncode(counts.map((k, v) => MapEntry(k.toString(), v))),
+    );
+  }
+
+  static Future<List<FieldModel>> getFavoriteFields({int limit = 5}) async {
+    final counts = await getFieldBookingCounts();
+    if (counts.isEmpty) return [];
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final result = <FieldModel>[];
+    for (final entry in sorted.take(limit)) {
+      final field = fields.where((f) => f.id == entry.key).firstOrNull;
+      if (field != null) result.add(field);
+    }
+    return result;
   }
 
   // ----------------------- TEMAN & CHAT LANGSUNG -----------------------

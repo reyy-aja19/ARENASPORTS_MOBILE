@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:penyewaan_lapangan/models/field_model.dart';
+import 'package:penyewaan_lapangan/services/rating_api.dart';
 import 'schedule_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -14,6 +15,20 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   late final PageController _pageController;
   int _currentPage = 0;
+  Future<({double avg, int count})>? _ratingFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _ratingFuture = _loadRating();
+  }
+
+  Future<({double avg, int count})> _loadRating() async {
+    final avg = await RatingApi.average(widget.field.id);
+    final count = await RatingApi.count(widget.field.id);
+    return (avg: avg, count: count);
+  }
 
   List<String> get galleryImages {
     final images = <String>[];
@@ -26,12 +41,6 @@ class _DetailScreenState extends State<DetailScreen> {
       images.add(widget.field.imageUrl!);
     }
     return images;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController();
   }
 
   @override
@@ -141,11 +150,56 @@ class _DetailScreenState extends State<DetailScreen> {
                           size: 18,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          '${widget.field.type} • ${widget.field.courtCount} lapangan',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        Expanded(
+                          child: Text(
+                            '${widget.field.type} • ${widget.field.courtCount} lapangan',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    FutureBuilder<({double avg, int count})>(
+                      future: _ratingFuture,
+                      builder: (context, snapshot) {
+                        final avg = snapshot.data?.avg ?? 0;
+                        final count = snapshot.data?.count ?? 0;
+                        return Row(
+                          children: [
+                            ...List.generate(5, (i) {
+                              final star = i + 1;
+                              IconData icon;
+                              if (avg >= star) {
+                                icon = Icons.star_rounded;
+                              } else if (avg >= star - 0.5) {
+                                icon = Icons.star_half_rounded;
+                              } else {
+                                icon = Icons.star_border_rounded;
+                              }
+                              return Icon(
+                                icon,
+                                size: 18,
+                                color: const Color(0xFFF59E0B),
+                              );
+                            }),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                count == 0
+                                    ? 'Belum ada rating'
+                                    : '${avg.toStringAsFixed(1)} ($count ulasan)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     if (widget.field.description?.isNotEmpty == true) ...[
                       const SizedBox(height: 12),
@@ -190,7 +244,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildCourtRow(List<int> courtNumbers) {
     return SizedBox(
-      height: 310,
+      height: 380,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.only(right: 4),
@@ -219,7 +273,7 @@ class _DetailScreenState extends State<DetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
-                height: 90,
+                height: 72,
                 width: double.infinity,
                 child: imageUrl == null
                     ? Container(
@@ -242,7 +296,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
               ),
               Padding(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -270,11 +324,11 @@ class _DetailScreenState extends State<DetailScreen> {
                     const SizedBox(height: 8),
                     Text(
                       court.description,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: Colors.grey.shade700,
-                        height: 1.3,
+                        height: 1.2,
                         fontSize: 12,
                       ),
                     ),
@@ -291,44 +345,64 @@ class _DetailScreenState extends State<DetailScreen> {
                       Wrap(
                         spacing: 5,
                         runSpacing: 5,
-                        children: court.facilities
-                            .map(
-                              (facility) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF7EE),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  facility,
-                                  style: const TextStyle(
-                                    color: Color(0xFF25613C),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
+                        children: [
+                          ...court.facilities.take(3).map(
+                                (facility) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF7EE),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    facility,
+                                    style: const TextStyle(
+                                      color: Color(0xFF25613C),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
                                 ),
                               ),
-                            )
-                            .toList(),
+                          if (court.facilities.length > 3)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEAF7EE),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '+${court.facilities.length - 3}',
+                                style: const TextStyle(
+                                  color: Color(0xFF25613C),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
-                      height: 38,
+                      height: 34,
                       child: OutlinedButton.icon(
                         onPressed: () => _openCourtSchedule(court),
                         icon: const Icon(
                           Icons.sports_soccer_outlined,
-                          size: 18,
+                          size: 16,
                         ),
-                        label: const Text('Booking'),
+                        label: const Text('Booking', style: TextStyle(fontSize: 13)),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: const Color(0xFF008C35),
                           side: const BorderSide(color: Color(0xFF00A32A)),
+                          padding: const EdgeInsets.symmetric(vertical: 4),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),

@@ -388,12 +388,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       children: [
         Icon(icon, size: 18, color: const Color(0xFF00A32A)),
         const SizedBox(width: 8),
-        Text(
-          text,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Color(0xFF1E2A2B),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: Color(0xFF1E2A2B),
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

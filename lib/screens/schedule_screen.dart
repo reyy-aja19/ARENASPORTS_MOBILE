@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:penyewaan_lapangan/services/api_service.dart';
@@ -21,7 +23,6 @@ class ScheduleScreen extends StatefulWidget {
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  // Jam yang tersedia di UI
   final List<String> _timeSlots = [
     "08:00",
     "09:00",
@@ -37,44 +38,65 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   ];
 
   DateTime selectedDate = DateTime.now();
-  List<String> _selectedTimes = [];
-  List<String> _bookedSlots = []; // Jam yang bakal diwarnain merah
+  final List<String> _selectedTimes = [];
+  List<String> _bookedSlots = [];
   bool _isLoadingSlots = true;
+  Timer? _clockTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchBookedSlots();
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
-  // Fungsi ambil data jam dari Laravel
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _fetchBookedSlots() async {
-  if (!mounted) return;
-  setState(() => _isLoadingSlots = true);
+    if (!mounted) return;
+    setState(() => _isLoadingSlots = true);
 
-  try {
-    String tanggalApi =
-        DateFormat('yyyy-MM-dd').format(selectedDate);
+    try {
+      final tanggalApi = DateFormat('yyyy-MM-dd').format(selectedDate);
+      final apiService = ApiService();
+      final data = await apiService.getBookedSlots(widget.id, tanggalApi);
 
-    final apiService = ApiService();
-    final data =
-        await apiService.getBookedSlots(widget.id, tanggalApi);
-
-    print("DEBUG: Jam terisi dari API -> $data");
-
-    if (mounted) {
-      setState(() {
-        _bookedSlots = data;
-        _isLoadingSlots = false;
-      });
-    }
-  } catch (e) {
-    print("DEBUG: Error fetch slots -> $e");
-    if (mounted) {
-      setState(() => _isLoadingSlots = false);
+      if (mounted) {
+        setState(() {
+          _bookedSlots = data;
+          _isLoadingSlots = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingSlots = false);
     }
   }
-}
+
+  bool _isSlotPast(String time) {
+    final now = DateTime.now();
+    final isToday = selectedDate.year == now.year &&
+        selectedDate.month == now.month &&
+        selectedDate.day == now.day;
+    if (!isToday) return false;
+
+    final parts = time.split(':');
+    final hour = int.tryParse(parts.first) ?? 0;
+    final minute = parts.length > 1 ? (int.tryParse(parts[1]) ?? 0) : 0;
+    final slotTime = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      hour,
+      minute,
+    );
+    return !slotTime.isAfter(now);
+  }
 
   Future<void> _continueToCheckout() async {
     if (!await requireAuthenticatedUser(context) || !mounted) return;
@@ -102,7 +124,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -130,7 +151,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               style: const TextStyle(fontSize: 14, color: Colors.grey),
             ),
           ),
-
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Text(
@@ -138,49 +158,48 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
           ),
-
           InkWell(
-  onTap: () async {
-  DateTime? picked = await showDatePicker(
-    context: context,
-    initialDate: selectedDate,
-    firstDate: DateTime.now(),
-    lastDate: DateTime.now().add(const Duration(days: 30)),
-  );
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: selectedDate,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 30)),
+              );
 
-  if (picked != null) {
-    setState(() {
-      selectedDate = picked;
-    });
+              if (picked != null) {
+                setState(() {
+                  selectedDate = picked;
+                  _selectedTimes.clear();
+                });
 
-    await Future.delayed(const Duration(milliseconds: 100));
-    _fetchBookedSlots();
-  }
-},
-  child: Container(
-    margin: const EdgeInsets.symmetric(horizontal: 20),
-    padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(
-      color: const Color(0xFF00A32A).withOpacity(0.1),
-      borderRadius: BorderRadius.circular(15),
-      border: Border.all(color: const Color(0xFF00A32A)),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.calendar_today, color: Color(0xFF00A32A)),
-        const SizedBox(width: 15),
-        Text(
-          DateFormat('dd MMMM yyyy').format(selectedDate),
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
+                await Future.delayed(const Duration(milliseconds: 100));
+                _fetchBookedSlots();
+              }
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00A32A).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: const Color(0xFF00A32A)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.calendar_today, color: Color(0xFF00A32A)),
+                  const SizedBox(width: 15),
+                  Text(
+                    DateFormat('dd MMMM yyyy').format(selectedDate),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ],
-    ),
-  ),
-),
-
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             child: Text(
@@ -188,7 +207,6 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
             ),
           ),
-
           Expanded(
             child: _isLoadingSlots
                 ? const Center(
@@ -198,92 +216,115 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          childAspectRatio: 2.5,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                        ),
+                      crossAxisCount: 3,
+                      childAspectRatio: 2.5,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
                     itemCount: _timeSlots.length,
-                    // Di dalam GridView.builder
                     itemBuilder: (context, index) {
-                      String time = _timeSlots[index];
-                      bool isBooked = _bookedSlots.contains(
-                        time,
-                      ); // Mencari "08:00" di dalam ["08:00", "09:00"]
-                      bool isSelected = _selectedTimes.contains(time);
+                      final time = _timeSlots[index];
+                      final isBooked = _bookedSlots.contains(time);
+                      final isSelected = _selectedTimes.contains(time);
+                      final isPast = _isSlotPast(time);
+                      final isDisabled = isBooked || isPast;
+
+                      // Prioritas warna: booked selalu merah, baru lewat (abu).
+                      Color bgColor;
+                      Color borderColor;
+                      Color textColor;
+                      if (isBooked) {
+                        bgColor = Colors.red.shade400;
+                        borderColor = Colors.red.shade400;
+                        textColor = Colors.white;
+                      } else if (isPast) {
+                        bgColor = Colors.grey.shade300;
+                        borderColor = Colors.grey.shade400;
+                        textColor = Colors.grey.shade600;
+                      } else if (isSelected) {
+                        bgColor = const Color(0xFF00A32A);
+                        borderColor = Colors.grey.shade300;
+                        textColor = Colors.white;
+                      } else {
+                        bgColor = Colors.white;
+                        borderColor = Colors.grey.shade300;
+                        textColor = Colors.black;
+                      }
 
                       return GestureDetector(
-                        onTap: isBooked
-    ? () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Jam sudah dibooking orang lain"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    : () {
-        setState(() {
-          if (isSelected) {
-            _selectedTimes.remove(time);
-          } else {
-            if (_selectedTimes.length < 2) {
-              _selectedTimes.add(time);
-              _selectedTimes.sort();
-            }
-          }
-        });
-      },
+                        onTap: isDisabled
+                            ? () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      isBooked
+                                          ? "Jam sudah dibooking orang lain"
+                                          : "Jam $time sudah terlewat",
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            : () {
+                                setState(() {
+                                  if (isSelected) {
+                                    _selectedTimes.remove(time);
+                                  } else {
+                                    if (_selectedTimes.length < 2) {
+                                      _selectedTimes.add(time);
+                                      _selectedTimes.sort();
+                                    }
+                                  }
+                                });
+                              },
                         child: Container(
                           decoration: BoxDecoration(
-                            color: isBooked
-                                ? Colors.red.shade400
-                                : (isSelected
-                                      ? const Color(0xFF00A32A)
-                                      : Colors.white),
+                            color: bgColor,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isBooked
-                                  ? Colors.red.shade400
-                                  : Colors.grey.shade300,
+                            border: Border.all(color: borderColor),
+                          ),
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  time,
+                                  style: TextStyle(
+                                    color: textColor,
+                                    decoration: isDisabled
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (isBooked)
+                                  const Text(
+                                    "Booked",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                if (isPast && !isBooked)
+                                  Text(
+                                    "Lewat",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
-                         child: Center(
-  child: Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      Text(
-        time,
-        style: TextStyle(
-          color: (isBooked || isSelected) ? Colors.white : Colors.black,
-          decoration: isBooked ? TextDecoration.lineThrough : null,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-
-      if (isBooked)
-        const Text(
-          "Booked",
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.white,
-          ),
-        ),
-    ],
-  ),
-),
                         ),
                       );
                     },
                   ),
           ),
-
           Container(
             padding: const EdgeInsets.all(20),
             child: ElevatedButton(
-              onPressed: _selectedTimes.isEmpty
-                  ? null
-                  : _continueToCheckout,
+              onPressed: _selectedTimes.isEmpty ? null : _continueToCheckout,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00A32A),
                 minimumSize: const Size(double.infinity, 55),

@@ -7,9 +7,6 @@ const Color kDialogAccent = Color(0xFF00A32A);
 const Color kDialogDanger = Color(0xFFE53935);
 
 /// Kerangka dialog dengan gaya seragam ARENASPORTS.
-///
-/// Dipakai oleh [showAppConfirmDialog], [showAppInfoDialog], dan bisa juga
-/// dipakai langsung untuk dialog dengan konten kustom.
 class AppDialogShell extends StatelessWidget {
   final IconData? icon;
   final Color accent;
@@ -86,9 +83,6 @@ class AppDialogShell extends StatelessWidget {
   }
 }
 
-/// Dialog konfirmasi (dua tombol: batal & aksi utama).
-///
-/// Mengembalikan `true` jika user menekan tombol utama.
 Future<bool> showAppConfirmDialog(
   BuildContext context, {
   required String title,
@@ -150,7 +144,6 @@ Future<bool> showAppConfirmDialog(
   return result ?? false;
 }
 
-/// Dialog informasi dengan satu tombol.
 Future<void> showAppInfoDialog(
   BuildContext context, {
   required String title,
@@ -193,7 +186,6 @@ Future<void> showAppInfoDialog(
   );
 }
 
-/// Dialog loading dengan gaya aplikasi (tidak bisa ditutup dengan tap).
 Future<void> showAppLoadingDialog(
   BuildContext context, {
   String message = 'Memproses...',
@@ -233,4 +225,128 @@ Future<void> showAppLoadingDialog(
       ),
     ),
   );
+}
+
+Future<({int rating, String comment})?> showAppRatingDialog(
+  BuildContext context, {
+  required String title,
+  String? message,
+}) async {
+  int selected = 0;
+  final controller = TextEditingController();
+  final result = await showDialog<({int rating, String comment})>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        return AppDialogShell(
+          icon: Icons.star_rounded,
+          accent: const Color(0xFFF59E0B),
+          title: title,
+          message: message,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (i) {
+                  final star = i + 1;
+                  return IconButton(
+                    onPressed: () => setDialogState(() => selected = star),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    icon: Icon(
+                      star <= selected
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded,
+                      color: const Color(0xFFF59E0B),
+                      size: 34,
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                selected == 0
+                    ? 'Pilih rating'
+                    : [
+                        'Sangat buruk',
+                        'Kurang baik',
+                        'Cukup',
+                        'Baik',
+                        'Sangat baik',
+                      ][selected - 1],
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: selected == 0
+                      ? Colors.grey.shade500
+                      : const Color(0xFFF59E0B),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Tulis ulasan (opsional)',
+                  filled: true,
+                  fillColor: const Color(0xFFF5F7FA),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.grey.shade700,
+                  side: BorderSide(color: Colors.grey.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('Batal'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: selected == 0
+                    ? null
+                    : () => Navigator.pop(dialogContext, (
+                        rating: selected,
+                        comment: controller.text.trim(),
+                      )),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF59E0B),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text(
+                  'Kirim',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  controller.dispose();
+  return result;
 }

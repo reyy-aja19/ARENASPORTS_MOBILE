@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/local_app_data_service.dart';
 import '../services/match_api.dart';
+import '../services/rating_api.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/guest_access_overlay.dart';
 import 'create_match_screen.dart';
 
@@ -19,6 +21,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _isGuest = true;
   bool _isCheckingSession = true;
   Set<int> _bookingsWithMatch = {};
+  Set<int> _ratedBookingIds = {};
   Timer? _statusTicker;
 
   @override
@@ -66,6 +69,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     if (!isGuest) _loadBookingsWithMatch();
+    if (!isGuest) _loadRatedBookings();
+  }
+
+  Future<void> _loadRatedBookings() async {
+    final ids = await RatingApi.getRatedBookingIds();
+    if (!mounted) return;
+    setState(() => _ratedBookingIds = ids);
   }
 
   Future<void> _loadBookingsWithMatch() async {
@@ -74,7 +84,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() => _bookingsWithMatch = ids);
   }
 
-  void _refreshData() {
+  Future<void> _refreshData() async {
     if (_isGuest) return;
     setState(() {
       _historyFuture = SharedPreferences.getInstance().then((prefs) {
@@ -83,7 +93,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         );
       });
     });
-    _loadBookingsWithMatch();
+    await _loadBookingsWithMatch();
+    await _loadRatedBookings();
   }
 
   @override
@@ -319,6 +330,82 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ),
+          if (rawStatus.toLowerCase() == 'selesai' ||
+              rawStatus.toLowerCase() == 'check out') ...[
+            const SizedBox(height: 8),
+            if (_ratedBookingIds.contains(bookingId))
+              Row(
+                children: [
+                  const Icon(
+                    Icons.star_rounded,
+                    color: Color(0xFFF59E0B),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Sudah dirating',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final fieldId = booking['lapangan_id'] is int
+                        ? booking['lapangan_id'] as int
+                        : int.tryParse('${booking['lapangan_id']}') ?? 0;
+                    final result = await showAppRatingDialog(
+                      context,
+                      title: 'Beri Rating',
+                      message: 'Bagaimana pengalamanmu di $namaLapangan?',
+                    );
+                    if (result == null) return;
+                    final ok = await RatingApi.submit(
+                      fieldId: fieldId,
+                      bookingId: bookingId,
+                      rating: result.rating,
+                      comment: result.comment,
+                    );
+                    if (!mounted) return;
+                    if (ok) {
+                      await _refreshData();
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Terima kasih! Rating tersimpan.'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    } else {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Rating gagal disimpan.'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.star_outline_rounded, size: 18),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFF59E0B),
+                    side: const BorderSide(color: Color(0xFFF59E0B)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  label: const Text(
+                    "BERI RATING",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );

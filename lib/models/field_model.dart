@@ -12,6 +12,8 @@ class FieldModel {
   final String? description;
   final String status;
   final dynamic fasilitas;
+  final double? latitude;
+  final double? longitude;
 
   FieldModel({
     required this.id,
@@ -25,6 +27,8 @@ class FieldModel {
     this.description,
     this.fasilitas,
     required this.status,
+    this.latitude,
+    this.longitude,
   });
 
   int courtIdFor(int courtNumber) {
@@ -103,8 +107,19 @@ class FieldModel {
       fasilitas: json['fasilitas'],
       description: json['deskripsi'] ?? 'Tidak ada deskripsi',
       status: json['status'] ?? 'available',
+      latitude: _coordinateFromJson(
+        json['latitude'] ?? json['lat'] ?? json['lintang'],
+      ),
+      longitude: _coordinateFromJson(
+        json['longitude'] ?? json['lng'] ?? json['lon'] ?? json['bujur'],
+      ),
     );
   }
+}
+
+double? _coordinateFromJson(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
 }
 
 class CourtModel {

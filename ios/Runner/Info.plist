@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Kamera digunakan untuk mengambil foto profil Anda.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Lokasi digunakan untuk menampilkan venue olahraga terdekat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Galeri digunakan untuk memilih foto profil Anda.</string>
 	<key>NSAppTransportSecurity</key>
