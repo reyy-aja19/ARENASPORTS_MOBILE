@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/local_auth_service.dart';
+import '../widgets/slider_captcha.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -11,10 +12,11 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _phoneController =
-      TextEditingController(); // Controller HP
+  final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
+
+  bool _captchaVerified = false;
 
   Future<void> _handleRegister() async {
     final String name = _nameController.text.trim();
@@ -37,6 +39,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (password.length < 8) {
       _showSnackBar("Password minimal 8 karakter!", Colors.orange);
+      return;
+    }
+
+    if (!_captchaVerified) {
+      _showSnackBar(
+        "Selesaikan verifikasi puzzle terlebih dahulu.",
+        Colors.orange,
+      );
       return;
     }
 
@@ -99,6 +109,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               _passwordController,
               Icons.lock,
               isPassword: true,
+            ),
+            const SizedBox(height: 24),
+            SliderCaptcha(
+              onVerificationChanged: (verified) {
+                setState(() => _captchaVerified = verified);
+              },
             ),
             const SizedBox(height: 40),
             _isLoading

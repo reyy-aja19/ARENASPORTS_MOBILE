@@ -32,9 +32,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     "14:00",
     "15:00",
     "16:00",
+    "17:00",
+    "18:00",
     "19:00",
     "20:00",
     "21:00",
+    "22:00",
+    "23:00",
   ];
 
   DateTime selectedDate = DateTime.now();
@@ -80,7 +84,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   bool _isSlotPast(String time) {
     final now = DateTime.now();
-    final isToday = selectedDate.year == now.year &&
+    final isToday =
+        selectedDate.year == now.year &&
         selectedDate.month == now.month &&
         selectedDate.day == now.day;
     if (!isToday) return false;
@@ -216,11 +221,11 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      childAspectRatio: 2.5,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                    ),
+                          crossAxisCount: 3,
+                          childAspectRatio: 2.5,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                        ),
                     itemCount: _timeSlots.length,
                     itemBuilder: (context, index) {
                       final time = _timeSlots[index];

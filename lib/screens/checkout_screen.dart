@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:penyewaan_lapangan/services/api_service.dart';
 import 'package:penyewaan_lapangan/screens/payment_screen.dart';
 import 'package:penyewaan_lapangan/services/midtrans_payment_service.dart';
+import '../services/push_notification_service.dart';
 import '../utils/auth_guard.dart';
+import '../widgets/top_banner.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final int lapanganId;
@@ -113,6 +115,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       if (result['status'] == true) {
         if (paymentMethod == 'Midtrans') {
+          showTopBanner(
+            context,
+            title: 'Pembayaran Berhasil',
+            message:
+                '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+            icon: Icons.check_circle_rounded,
+          );
+          PushNotificationService.showLocalNotification(
+            title: 'Pembayaran Berhasil',
+            body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+          );
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
@@ -129,6 +142,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
 
         if (result['local_demo'] == true) {
+          showTopBanner(
+            context,
+            title: 'Booking Berhasil',
+            message:
+                '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+            icon: Icons.check_circle_rounded,
+          );
+          PushNotificationService.showLocalNotification(
+            title: 'Booking Berhasil',
+            body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+          );
           _showSnackBar(
             '${result['message']} +${result['current_points']} poin.',
             Colors.green,
@@ -141,6 +165,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           return;
         }
 
+        showTopBanner(
+          context,
+          title: 'Booking Berhasil',
+          message: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+          icon: Icons.check_circle_rounded,
+        );
+        PushNotificationService.showLocalNotification(
+          title: 'Booking Berhasil',
+          body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+        );
         Navigator.pushNamedAndRemoveUntil(
           context,
           '/history',
@@ -212,11 +246,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     widget.tanggal,
                   ),
                   _divider(),
-                  _summaryRow(
-                    Icons.access_time_outlined,
-                    "Jam",
-                    _jamTampil,
-                  ),
+                  _summaryRow(Icons.access_time_outlined, "Jam", _jamTampil),
                   _divider(),
                   _summaryRow(
                     Icons.timelapse_outlined,
@@ -270,7 +300,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: 24),
 
             // --- Metode Pembayaran ---
-            _sectionTitle("Metode Pembayaran", Icons.account_balance_wallet_outlined),
+            _sectionTitle(
+              "Metode Pembayaran",
+              Icons.account_balance_wallet_outlined,
+            ),
             const SizedBox(height: 12),
             _paymentOption(
               value: 'Midtrans',
@@ -359,8 +392,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 _isLoading
                     ? 'Memproses...'
                     : (paymentMethod == 'Midtrans'
-                        ? 'Lanjut ke Pembayaran'
-                        : 'Konfirmasi Booking'),
+                          ? 'Lanjut ke Pembayaran'
+                          : 'Konfirmasi Booking'),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -427,10 +460,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 2),
                 Text(

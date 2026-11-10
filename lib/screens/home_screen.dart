@@ -10,6 +10,7 @@ import 'detail_screen.dart';
 import 'package:penyewaan_lapangan/models/field_model.dart';
 import '../models/notification_model.dart';
 import '../services/local_app_data_service.dart';
+import '../services/push_notification_service.dart';
 import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -38,9 +39,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     allFields = List<FieldModel>.from(LocalAppDataService.fields);
     filteredFields = List<FieldModel>.from(LocalAppDataService.fields);
-    futureNotifications = Future.value(LocalAppDataService.notifications);
+    futureNotifications = _loadNotifications();
     _loadFavorites();
     _loadCurrentLocation();
+  }
+
+  Future<List<NotificationModel>> _loadNotifications() async {
+    final uid = await LocalAppDataService.currentUserId();
+    if (uid == null) return LocalAppDataService.notifications;
+    // Aktifkan notifikasi sistem (inbox Firestore) untuk user ini.
+    PushNotificationService.listenToInbox(uid);
+    PushNotificationService.saveTokenForUser(uid);
+    return LocalAppDataService.getNotifications(uid);
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -290,6 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
             selectedCategory = 'Semua';
             searchQuery = '';
             _applyFilters();
+            futureNotifications = _loadNotifications();
           });
           await Future.wait([_loadFavorites(), _loadCurrentLocation()]);
         },
@@ -707,7 +718,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   FutureBuilder<List<NotificationModel>>(
                     future: futureNotifications,
                     builder: (context, snapshot) {
-                      final count = snapshot.data?.length ?? 0;
+                      final count =
+                          snapshot.data?.where((n) => !n.isRead).length ?? 0;
 
                       return Stack(
                         children: [
@@ -720,11 +732,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) => NotificationScreen(
-                                    notifications: snapshot.data ?? [],
-                                  ),
+                                  builder: (_) => const NotificationScreen(),
                                 ),
-                              );
+                              ).then((_) {
+                                if (mounted) {
+                                  setState(() {
+                                    futureNotifications = _loadNotifications();
+                                  });
+                                }
+                              });
                             },
                           ),
                           if (count > 0)

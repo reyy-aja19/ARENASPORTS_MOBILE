@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -30,6 +32,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
   late final WebViewController _controller;
   bool _isLoading = true;
   bool _isCheckingStatus = false;
+  bool _isFetchingStatus = false;
+  bool _paymentCompleted = false;
+  Timer? _statusTimer;
 
   @override
   void initState() {
@@ -43,31 +48,68 @@ class _PaymentScreenState extends State<PaymentScreen> {
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _isLoading = false);
+            // Begitu halaman Snap selesai dimuat (termasuk halaman sukses),
+            // cek status tanpa menunggu user menekan tombol apa pun.
+            _checkPaymentStatus(silent: true);
+          },
+          onUrlChange: (change) {
+            final url = change.url?.toLowerCase() ?? '';
+            final looksPaid =
+                url.contains('status_code=200') ||
+                url.contains('transaction_status=settlement') ||
+                url.contains('transaction_status=capture') ||
+                url.contains('/finish');
+            if (looksPaid) _checkPaymentStatus(silent: true);
           },
         ),
       )
       ..loadRequest(Uri.parse(widget.paymentUrl));
+
+    // Jaring pengaman: kalau halaman sukses tidak memicu navigasi apa pun,
+    // status tetap dicek otomatis setiap 3 detik sampai pembayaran terdeteksi.
+    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _checkPaymentStatus(silent: true);
+    });
   }
 
-  Future<void> _checkPaymentStatus() async {
-    setState(() => _isCheckingStatus = true);
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkPaymentStatus({bool silent = false}) async {
+    if (_paymentCompleted || _isFetchingStatus) return;
+
+    _isFetchingStatus = true;
+    if (!silent) setState(() => _isCheckingStatus = true);
+
     try {
       final status = await MidtransPaymentService().checkStatus(widget.orderId);
-      if (!mounted) return;
+      if (!mounted || _paymentCompleted) return;
 
       if (status.isPaid) {
+        _paymentCompleted = true;
+        _statusTimer?.cancel();
+        // Langsung kembali ke checkout; checkout akan menyimpan booking lalu
+        // menampilkan layar "Pembayaran Berhasil" secara otomatis.
         Navigator.pop(context, true);
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Status pembayaran: ${status.transactionStatus}'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Pembayaran belum selesai (${status.transactionStatus}). '
+              'Selesaikan pembayaran lalu tunggu sebentar.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (error) {
-      if (mounted) {
+      if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Gagal memeriksa pembayaran: $error'),
@@ -76,7 +118,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isCheckingStatus = false);
+      _isFetchingStatus = false;
+      if (mounted && !silent) {
+        setState(() => _isCheckingStatus = false);
+      }
     }
   }
 
@@ -86,7 +131,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       backgroundColor: const Color(0xFFF5F7FA),
       appBar: AppBar(
         title: const Text(
-          'Pembayaran Midtrans Sandbox',
+          'Pembayaran Midtrans',
           style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
@@ -116,11 +161,39 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 style: TextStyle(color: Colors.grey.shade700, height: 1.4),
               ),
               const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF00A32A),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Status pembayaran dicek otomatis. '
+                      'Notifikasi berhasil akan muncul sendiri.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: _isCheckingStatus ? null : _checkPaymentStatus,
+                  onPressed: _isCheckingStatus
+                      ? null
+                      : () => _checkPaymentStatus(),
                   icon: _isCheckingStatus
                       ? const SizedBox.square(
                           dimension: 18,
@@ -130,7 +203,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   label: Text(
                     _isCheckingStatus
                         ? 'Memeriksa status...'
-                        : 'Cek Status Pembayaran',
+                        : 'Cek Ulang Status',
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF00A32A),
@@ -264,7 +337,7 @@ class _PaymentSuccessScreenState extends State<PaymentSuccessScreen>
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Pembayaran Sandbox sudah terverifikasi dan booking kamu selesai.',
+                        'Pembayaran sudah terverifikasi dan booking kamu selesai.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.grey.shade700,

@@ -160,16 +160,85 @@ class LocalAppDataService {
     NotificationModel(
       title: 'Selamat datang di Sporty',
       message: 'Cari lapangan dan ajak teman bermain hari ini.',
-      time: 'Baru saja',
       type: 'info',
     ),
     NotificationModel(
       title: 'Poin bisa ditukar',
       message: 'Kumpulkan poin dari booking dan tukarkan dengan reward.',
-      time: 'Hari ini',
       type: 'reward',
     ),
   ];
+
+  static String _notificationsKey(int userId) => 'local_notifications_$userId';
+
+  static Future<int?> currentUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('user_id');
+  }
+
+  static Future<List<NotificationModel>> getNotifications(int userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _notificationsKey(userId);
+    if (!prefs.containsKey(key)) {
+      final seeded = List<NotificationModel>.from(notifications);
+      await prefs.setString(
+        key,
+        jsonEncode(seeded.map((n) => n.toJson()).toList()),
+      );
+      return seeded;
+    }
+    final raw = prefs.getString(key);
+    if (raw == null) return [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return [];
+    return decoded
+        .whereType<Map>()
+        .map((m) => NotificationModel.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  static Future<void> addNotification(
+    int userId,
+    NotificationModel notification,
+  ) async {
+    final list = await getNotifications(userId);
+    list.insert(0, notification);
+    if (list.length > 50) {
+      list.removeRange(50, list.length);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _notificationsKey(userId),
+      jsonEncode(list.map((n) => n.toJson()).toList()),
+    );
+  }
+
+  static Future<void> markAllNotificationsRead(int userId) async {
+    final list = await getNotifications(userId);
+    final updated = list
+        .map((n) => n.isRead ? n : n.copyWith(isRead: true))
+        .toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _notificationsKey(userId),
+      jsonEncode(updated.map((n) => n.toJson()).toList()),
+    );
+  }
+
+  static Future<void> deleteNotification(int userId, String id) async {
+    final list = await getNotifications(userId);
+    list.removeWhere((n) => n.id == id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _notificationsKey(userId),
+      jsonEncode(list.map((n) => n.toJson()).toList()),
+    );
+  }
+
+  static Future<void> clearNotifications(int userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_notificationsKey(userId));
+  }
 
   static String _date(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-'
@@ -429,6 +498,16 @@ class LocalAppDataService {
 
     await _incrementFieldBookingCount(fieldId);
 
+    await addNotification(
+      userId,
+      NotificationModel(
+        title: 'Booking Berhasil',
+        message:
+            '$bookingFieldName pada $date pukul $startTime-$endTime. Selamat bermain!',
+        type: 'booking',
+      ),
+    );
+
     final user = await LocalAuthService.currentUser();
     final currentPoints = (user?['points'] as num?)?.toInt() ?? 0;
     final earnedPoints = hours * 10;
@@ -605,7 +684,12 @@ class LocalAppDataService {
     final ratings = await _readRatings();
     if (ratings.any((r) => r['bookingId'] == bookingId)) return false;
     ratings.add({
-      'id': ratings.fold<int>(0, (m, r) => (r['id'] as int? ?? 0) > m ? r['id'] as int : m) + 1,
+      'id':
+          ratings.fold<int>(
+            0,
+            (m, r) => (r['id'] as int? ?? 0) > m ? r['id'] as int : m,
+          ) +
+          1,
       'userId': userId,
       'fieldId': fieldId,
       'bookingId': bookingId,
@@ -619,8 +703,11 @@ class LocalAppDataService {
 
   static Future<List<Map<String, dynamic>>> getFieldRatings(int fieldId) async {
     final ratings = await _readRatings();
-    return ratings.where((r) => r['fieldId'] == fieldId).toList()
-      ..sort((a, b) => (b['createdAt']?.toString() ?? '').compareTo(a['createdAt']?.toString() ?? ''));
+    return ratings.where((r) => r['fieldId'] == fieldId).toList()..sort(
+      (a, b) => (b['createdAt']?.toString() ?? '').compareTo(
+        a['createdAt']?.toString() ?? '',
+      ),
+    );
   }
 
   static Future<double> getAverageRating(int fieldId) async {
@@ -804,10 +891,7 @@ class LocalAppDataService {
 
     final reqs = await _readFriendRequests();
     if (reqs.any(
-      (r) =>
-          r['from'] == fromId &&
-          r['to'] == toId &&
-          r['status'] == 'pending',
+      (r) => r['from'] == fromId && r['to'] == toId && r['status'] == 'pending',
     )) {
       return 'pending';
     }
@@ -828,6 +912,16 @@ class LocalAppDataService {
       'createdAt': DateTime.now().toIso8601String(),
     });
     await _writeFriendRequests(reqs);
+
+    await addNotification(
+      toId,
+      NotificationModel(
+        title: 'Permintaan Pertemanan',
+        message: '$fromName mengirim permintaan pertemanan.',
+        type: 'friend',
+      ),
+    );
+
     return 'sent';
   }
 
@@ -858,8 +952,19 @@ class LocalAppDataService {
     await _writeFriendRequests(reqs);
 
     final fromId = reqs[idx]['from'] as int;
+    final currentUser = await LocalAuthService.currentUser();
+    final toName = currentUser?['name']?.toString() ?? 'Pengguna';
     await addFriend(userId, fromId);
     await addFriend(fromId, userId);
+
+    await addNotification(
+      fromId,
+      NotificationModel(
+        title: 'Permintaan Diterima',
+        message: '$toName menerima permintaan pertemanan Anda.',
+        type: 'friend',
+      ),
+    );
   }
 
   static Future<void> rejectFriendRequest(int requestId, int userId) async {
@@ -877,18 +982,12 @@ class LocalAppDataService {
     if (friends.any((f) => f['id'] == toId)) return 'friends';
     final reqs = await _readFriendRequests();
     if (reqs.any(
-      (r) =>
-          r['from'] == fromId &&
-          r['to'] == toId &&
-          r['status'] == 'pending',
+      (r) => r['from'] == fromId && r['to'] == toId && r['status'] == 'pending',
     )) {
       return 'pending_out';
     }
     if (reqs.any(
-      (r) =>
-          r['from'] == toId &&
-          r['to'] == fromId &&
-          r['status'] == 'pending',
+      (r) => r['from'] == toId && r['to'] == fromId && r['status'] == 'pending',
     )) {
       return 'pending_in';
     }
@@ -916,8 +1015,9 @@ class LocalAppDataService {
 
     final matches = await getMatches();
     final index = matches.indexWhere((match) => match.id == matchId);
-    if (index < 0)
+    if (index < 0) {
       return {'success': false, 'message': 'Match tidak ditemukan.'};
+    }
 
     final match = matches[index];
     if (match.jumlahBergabung >= match.jumlahPemain) {

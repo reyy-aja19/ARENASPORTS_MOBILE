@@ -3,7 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/friend_api.dart';
 import '../widgets/app_dialog.dart';
+import '../services/push_notification_service.dart';
 import '../widgets/guest_access_overlay.dart';
+import '../widgets/top_banner.dart';
 import 'direct_chat_screen.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -127,6 +129,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
     if (status == 'sent') {
       msg = 'Permintaan pertemanan ke $name dikirim. Menunggu persetujuan.';
       color = Colors.green;
+      PushNotificationService.sendPushToUser(
+        id,
+        'Permintaan Pertemanan',
+        'Ada permintaan pertemanan baru untuk Anda.',
+      );
+      PushNotificationService.showLocalNotification(
+        title: 'Permintaan Terkirim',
+        body: 'Permintaan pertemanan ke $name dikirim.',
+      );
+      showTopBanner(
+        context,
+        title: 'Permintaan Terkirim',
+        message: 'Permintaan pertemanan ke $name dikirim.',
+        icon: Icons.person_add_alt_1_rounded,
+      );
     } else if (status == 'pending') {
       msg = 'Permintaan ke $name sudah dikirim sebelumnya.';
       color = Colors.orange;
@@ -144,10 +161,28 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   Future<void> _acceptRequest(Map<String, dynamic> req) async {
     final requestId = req['id'] as int;
+    final fromId = req['from'] as int?;
     final fromName = req['fromName']?.toString() ?? 'Pengguna';
     await FriendApi.acceptRequest(requestId);
+    if (fromId != null) {
+      PushNotificationService.sendPushToUser(
+        fromId,
+        'Permintaan Diterima',
+        'Permintaan pertemanan Anda diterima.',
+      );
+      PushNotificationService.showLocalNotification(
+        title: 'Teman Baru',
+        body: '$fromName sekarang menjadi teman Anda.',
+      );
+    }
     await _loadData();
     if (!mounted) return;
+    showTopBanner(
+      context,
+      title: 'Teman Baru',
+      message: '$fromName sekarang menjadi teman Anda.',
+      icon: Icons.people_alt_rounded,
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$fromName sekarang menjadi teman Anda.'),

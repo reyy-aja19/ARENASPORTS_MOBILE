@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
+import '../services/push_notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -75,6 +76,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final prefs = startupResults.first as SharedPreferences;
+    await PushNotificationService.init();
     final token = prefs.getString('token');
     Navigator.pushReplacementNamed(
       context,
