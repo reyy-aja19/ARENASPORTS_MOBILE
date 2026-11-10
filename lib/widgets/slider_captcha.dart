@@ -21,7 +21,7 @@ class _SliderCaptchaState extends State<SliderCaptcha> {
   double _targetProgress = 0.48 + Random.secure().nextDouble() * 0.3;
   double _progress = 0;
   bool _verified = false;
-  bool _attemptStateLoaded = false;
+  bool _attemptStateLoaded = true;
   int _failedAttempts = 0;
   DateTime? _lockedUntil;
   Timer? _lockTimer;
@@ -34,27 +34,32 @@ class _SliderCaptchaState extends State<SliderCaptcha> {
   }
 
   Future<void> _restoreAttemptState() async {
-    final preferences = await SharedPreferences.getInstance();
-    final failedAttempts = preferences.getInt(_failedAttemptsKey) ?? 0;
-    final lockedUntilMillis = preferences.getInt(_lockedUntilKey);
-    final lockedUntil = lockedUntilMillis == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(lockedUntilMillis);
-    final activeLock = lockedUntil != null && lockedUntil.isAfter(DateTime.now())
-        ? lockedUntil
-        : null;
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      final failedAttempts = preferences.getInt(_failedAttemptsKey) ?? 0;
+      final lockedUntilMillis = preferences.getInt(_lockedUntilKey);
+      final lockedUntil = lockedUntilMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(lockedUntilMillis);
+      final activeLock = lockedUntil != null && lockedUntil.isAfter(DateTime.now())
+          ? lockedUntil
+          : null;
 
-    if (activeLock == null && lockedUntilMillis != null) {
-      await preferences.remove(_lockedUntilKey);
+      if (activeLock == null && lockedUntilMillis != null) {
+        await preferences.remove(_lockedUntilKey);
+      }
+      if (!mounted) return;
+
+      setState(() {
+        _failedAttempts = failedAttempts;
+        _lockedUntil = activeLock;
+        _attemptStateLoaded = true;
+      });
+      if (activeLock != null) _startLockTimer(activeLock);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _attemptStateLoaded = true);
     }
-    if (!mounted) return;
-
-    setState(() {
-      _failedAttempts = failedAttempts;
-      _lockedUntil = activeLock;
-      _attemptStateLoaded = true;
-    });
-    if (activeLock != null) _startLockTimer(activeLock);
   }
 
   void _createChallenge({bool notify = false}) {
@@ -104,11 +109,10 @@ class _SliderCaptchaState extends State<SliderCaptcha> {
           _message =
               'Terlalu banyak percobaan. Coba lagi dalam $lockMinutes menit.';
         } else {
-          _message =
-              'Belum pas. Coba lagi (${_failedAttempts % 5}/5 percobaan).';
+          _message = 'Belum pas. Coba geser lagi.';
         }
       });
-      await _saveAttemptState();
+      _saveAttemptState();
       if (_lockedUntil case final lockedUntil?) {
         _startLockTimer(lockedUntil);
       }
@@ -116,17 +120,19 @@ class _SliderCaptchaState extends State<SliderCaptcha> {
   }
 
   Future<void> _saveAttemptState() async {
-    final preferences = await SharedPreferences.getInstance();
-    await preferences.setInt(_failedAttemptsKey, _failedAttempts);
-    final lockedUntil = _lockedUntil;
-    if (lockedUntil == null) {
-      await preferences.remove(_lockedUntilKey);
-    } else {
-      await preferences.setInt(
-        _lockedUntilKey,
-        lockedUntil.millisecondsSinceEpoch,
-      );
-    }
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setInt(_failedAttemptsKey, _failedAttempts);
+      final lockedUntil = _lockedUntil;
+      if (lockedUntil == null) {
+        await preferences.remove(_lockedUntilKey);
+      } else {
+        await preferences.setInt(
+          _lockedUntilKey,
+          lockedUntil.millisecondsSinceEpoch,
+        );
+      }
+    } catch (_) {}
   }
 
   void _startLockTimer(DateTime lockedUntil) {

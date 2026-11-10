@@ -16,7 +16,9 @@ import 'screens/profile_screen.dart';
 import 'screens/point_screen.dart';
 import 'screens/match_screen.dart';
 import 'screens/friends_screen.dart';
+import 'screens/chatbot_screen.dart';
 import 'screens/success_auth_screen.dart';
+import 'widgets/areno_chatbot_button.dart';
 
 // Catatan: ScheduleScreen dan CheckoutScreen tidak di-import di sini
 // karena sudah tidak dipakai di routing statis (MaterialApp routes).
@@ -85,6 +87,7 @@ class SportsFieldApp extends StatelessWidget {
         '/change-password': (context) => const ChangePasswordScreen(),
         '/terms': (context) => const TermsScreen(),
         '/privacy': (context) => const PrivacyScreen(),
+        '/chatbot': (context) => const ChatbotScreen(),
       },
     );
   }
@@ -120,7 +123,19 @@ class _MainNavigationState extends State<MainNavigation> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: Stack(
+        children: [
+          IndexedStack(index: _index, children: _pages),
+          Positioned(
+            bottom:
+                kBottomNavigationBarHeight +
+                MediaQuery.of(context).padding.bottom +
+                4,
+            right: 12,
+            child: const ArenoChatbotButton(),
+          ),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
         onTap: (val) {
