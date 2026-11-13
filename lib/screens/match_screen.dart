@@ -386,16 +386,30 @@ class _MatchScreenState extends State<MatchScreen> {
                             Row(
                               children: [
                                 const Icon(
-                                  Icons.location_on,
+                                  Icons.stadium_outlined,
                                   size: 14,
                                   color: Colors.grey,
                                 ),
                                 const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    match.fieldName.isEmpty
+                                        ? 'Lapangan belum ditentukan'
+                                        : match.fieldName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.blueGrey,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
                                 Text(
                                   match.jenis,
                                   style: const TextStyle(
                                     color: Colors.blueGrey,
-                                    fontSize: 13,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
@@ -614,6 +628,13 @@ class _MatchScreenState extends State<MatchScreen> {
                       ),
                   ],
                   const Divider(height: 30),
+                  _detailRow(
+                    Icons.stadium_outlined,
+                    "Lapangan",
+                    match.fieldName.isEmpty
+                        ? "Lapangan belum ditentukan"
+                        : match.fieldName,
+                  ),
                   _detailRow(
                     Icons.calendar_today,
                     "Tanggal",

@@ -13,6 +13,8 @@ class MatchModel {
   final String organizer;
   final int registrationFee;
   final String prize;
+  final int fieldId;
+  final String fieldName;
 
   const MatchModel({
     required this.id,
@@ -29,6 +31,8 @@ class MatchModel {
     this.organizer = 'Pengguna',
     this.registrationFee = 0,
     this.prize = '',
+    this.fieldId = 0,
+    this.fieldName = '',
   });
 
   bool get isTournament => eventType == 'tournament';
@@ -49,6 +53,8 @@ class MatchModel {
       organizer: json['organizer'] ?? 'Pengguna',
       registrationFee: (json['registration_fee'] as num?)?.toInt() ?? 0,
       prize: json['prize']?.toString() ?? '',
+      fieldId: (json['field_id'] as num?)?.toInt() ?? 0,
+      fieldName: json['field_name']?.toString() ?? '',
     );
   }
 
@@ -68,6 +74,8 @@ class MatchModel {
       'organizer': organizer,
       'registration_fee': registrationFee,
       'prize': prize,
+      'field_id': fieldId,
+      'field_name': fieldName,
     };
   }
 }

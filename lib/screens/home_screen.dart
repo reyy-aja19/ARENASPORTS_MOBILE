@@ -11,6 +11,7 @@ import 'package:penyewaan_lapangan/models/field_model.dart';
 import '../models/notification_model.dart';
 import '../services/local_app_data_service.dart';
 import '../services/push_notification_service.dart';
+import '../widgets/point_center.dart';
 import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -312,7 +313,18 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _buildHeader(),
               const SizedBox(height: 18),
-              _buildCategories(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: PointCenter(
+                  selectedCategory: selectedCategory,
+                  onCategoryChanged: (category) {
+                    setState(() {
+                      selectedCategory = category;
+                      _applyFilters();
+                    });
+                  },
+                ),
+              ),
               if (favoriteFields.isNotEmpty) ...[
                 _sectionHeader("Sering Dibooking", Icons.favorite_rounded),
                 _buildHorizontalList(context, favoriteFields),
@@ -843,61 +855,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCategories() {
-    final categories = ['Semua', 'Futsal', 'Badminton'];
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: SizedBox(
-        height: 46,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          itemCount: categories.length,
-          itemBuilder: (context, index) {
-            final cat = categories[index];
-            final isActive = selectedCategory == cat;
-            return GestureDetector(
-              onTap: () {
-                setState(() {
-                  selectedCategory = cat;
-                  _applyFilters();
-                });
-              },
-              child: Container(
-                margin: const EdgeInsets.only(right: 10),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: isActive ? const Color(0xFF00A32A) : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isActive ? Colors.transparent : Colors.grey.shade200,
-                  ),
-                  boxShadow: [
-                    if (!isActive)
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.02),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                  ],
-                ),
-                child: Text(
-                  cat,
-                  style: TextStyle(
-                    color: isActive ? Colors.white : Colors.black87,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
       ),
     );
   }

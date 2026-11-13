@@ -553,6 +553,8 @@ class LocalAppDataService {
           organizer: 'ArenaSports Admin',
           registrationFee: 50000,
           prize: 'Piala juara + Rp 3.000.000',
+          fieldId: 1,
+          fieldName: 'Kelapa Gading Sports Indramayu • Badminton 1-6',
         ),
         MatchModel(
           id: 2,
@@ -570,6 +572,8 @@ class LocalAppDataService {
           organizer: 'ArenaSports Admin',
           registrationFee: 0,
           prize: 'Piala juara + Rp 1.500.000',
+          fieldId: 3,
+          fieldName: 'Futsal NCI • Futsal 1-6',
         ),
       ];
       matches = jsonEncode(seeded.map((match) => match.toJson()).toList());

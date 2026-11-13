@@ -26,6 +26,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   String _startTimeString = '';
   String _endTimeString = '';
   int _bookingId = 0;
+  int _fieldId = 0;
+  String _venueName = 'Lapangan tidak diketahui';
 
   @override
   void initState() {
@@ -36,26 +38,39 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       // 1. Ambil ID Booking Asli (Penting untuk mencocokkan relasi di API Match)
       _bookingId = widget.bookingData['id'] ?? 0;
 
-      // 2. Ekstraksi Nama Lapangan dari Objek Relasi Lapangan Laravel
+      // 2. Ambil nama lapangan dan field booking agar event dapat diketahui
       final lapanganData = widget.bookingData['lapangan'];
-      String namaLapangan = "";
+      String rawVenue = '';
 
-      if (lapanganData != null) {
-        namaLapangan =
-            (lapanganData['nama_lapangan'] ??
+      if (lapanganData is Map) {
+        rawVenue =
+            (lapanganData['nama_venue'] ??
+                    lapanganData['venue_name'] ??
                     lapanganData['nama'] ??
-                    lapanganData['nama_venue'] ??
-                    "")
+                    lapanganData['nama_lapangan'] ??
+                    lapanganData['name'] ??
+                    '')
                 .toString()
-                .toLowerCase();
-      } else {
-        namaLapangan =
-            (widget.bookingData['nama_lapangan'] ??
-                    widget.bookingData['lapangan_nama'] ??
-                    "")
-                .toString()
-                .toLowerCase();
+                .trim();
       }
+      if (rawVenue.isEmpty) {
+        rawVenue =
+            (widget.bookingData['venue_name'] ??
+                    widget.bookingData['lapangan_nama'] ??
+                    widget.bookingData['field_name'] ??
+                    '')
+                .toString()
+                .trim();
+      }
+
+      _venueName = rawVenue.isEmpty ? 'Lapangan tidak diketahui' : rawVenue;
+      _fieldId =
+          int.tryParse(widget.bookingData['lapangan_id']?.toString() ?? '') ??
+          (lapanganData is Map
+              ? int.tryParse(lapanganData['id']?.toString() ?? '') ?? 0
+              : 0);
+
+      String namaLapangan = _venueName.toLowerCase();
 
       // 3. Deteksi Pintar Jenis Olahraga Berdasarkan Nama Lapangan
       if (namaLapangan.contains('futsal') || namaLapangan.contains('bola')) {
@@ -181,6 +196,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         jumlahBergabung: 1,
         status: 'Open',
         deskripsi: _descController.text,
+        fieldId: _fieldId,
+        fieldName: _venueName,
       );
 
       // Tampilkan indikator loading sederhana saat memproses jaringan
@@ -261,6 +278,18 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                 decoration: _inputDecoration("Judul Match", Icons.title),
                 validator: (v) =>
                     v!.isEmpty ? "Isi judul match terlebih dahulu" : null,
+              ),
+              const SizedBox(height: 15),
+
+              // Lapangan dari booking
+              TextFormField(
+                initialValue: _venueName,
+                readOnly: true,
+                decoration: _inputDecoration(
+                  "Lapangan",
+                  Icons.stadium_outlined,
+                  enabled: false,
+                ),
               ),
               const SizedBox(height: 15),
 

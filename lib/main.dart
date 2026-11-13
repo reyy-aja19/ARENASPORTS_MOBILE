@@ -13,7 +13,6 @@ import 'screens/request_admin_screen.dart';
 // REVISI: Import payment_screen.dart dihapus dari sini karena sudah tidak digunakan di main.dart
 import 'screens/history_screen.dart';
 import 'screens/profile_screen.dart';
-import 'screens/point_screen.dart';
 import 'screens/match_screen.dart';
 import 'screens/friends_screen.dart';
 import 'screens/chatbot_screen.dart';
@@ -109,15 +108,14 @@ class _MainNavigationState extends State<MainNavigation> {
     // List halaman untuk navigasi bawah
     final List<Widget> _pages = [
       const HistoryScreen(),
-      const PointScreen(),
+      const MatchScreen(),
       HomeScreen(
         onProfileTap: () {
           setState(() {
-            _index = 5; // Berpindah ke tab Profil
+            _index = 4; // Berpindah ke tab Profil
           });
         },
       ),
-      const MatchScreen(),
       const FriendsScreen(),
       const ProfileScreen(),
     ];
@@ -156,19 +154,14 @@ class _MainNavigationState extends State<MainNavigation> {
             label: 'Booking',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.monetization_on_outlined),
-            activeIcon: Icon(Icons.monetization_on),
-            label: 'Poin',
+            icon: Icon(Icons.event_outlined),
+            activeIcon: Icon(Icons.event),
+            label: 'Event',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
             activeIcon: Icon(Icons.home),
             label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event_outlined),
-            activeIcon: Icon(Icons.event),
-            label: 'Event',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.chat_bubble_outline),
