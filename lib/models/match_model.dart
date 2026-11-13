@@ -8,9 +8,13 @@ class MatchModel {
   final int jumlahPemain;
   final int jumlahBergabung;
   final String status;
-  final String deskripsi; // 1. PASTIKAN ADA BARIS INI
+  final String deskripsi;
+  final String eventType;
+  final String organizer;
+  final int registrationFee;
+  final String prize;
 
-  MatchModel({
+  const MatchModel({
     required this.id,
     required this.title,
     required this.jenis,
@@ -20,8 +24,14 @@ class MatchModel {
     required this.jumlahPemain,
     required this.jumlahBergabung,
     required this.status,
-    required this.deskripsi, // 2. PASTIKAN ADA BARIS INI
+    required this.deskripsi,
+    this.eventType = 'open_match',
+    this.organizer = 'Pengguna',
+    this.registrationFee = 0,
+    this.prize = '',
   });
+
+  bool get isTournament => eventType == 'tournament';
 
   factory MatchModel.fromJson(Map<String, dynamic> json) {
     return MatchModel(
@@ -34,7 +44,11 @@ class MatchModel {
       jumlahPemain: json['jumlah_pemain'] ?? 0,
       jumlahBergabung: json['jumlah_bergabung'] ?? 0,
       status: json['status'] ?? 'Open',
-      deskripsi: json['deskripsi'] ?? '', // 3. PASTIKAN ADA BARIS INI
+      deskripsi: json['deskripsi'] ?? '',
+      eventType: json['event_type'] ?? 'open_match',
+      organizer: json['organizer'] ?? 'Pengguna',
+      registrationFee: (json['registration_fee'] as num?)?.toInt() ?? 0,
+      prize: json['prize']?.toString() ?? '',
     );
   }
 
@@ -49,7 +63,11 @@ class MatchModel {
       'jumlah_pemain': jumlahPemain,
       'jumlah_bergabung': jumlahBergabung,
       'status': status,
-      'deskripsi': deskripsi, // 4. PASTIKAN ADA BARIS INI
+      'deskripsi': deskripsi,
+      'event_type': eventType,
+      'organizer': organizer,
+      'registration_fee': registrationFee,
+      'prize': prize,
     };
   }
 }

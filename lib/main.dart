@@ -166,9 +166,9 @@ class _MainNavigationState extends State<MainNavigation> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.sports_tennis_outlined),
-            activeIcon: Icon(Icons.sports_tennis),
-            label: 'Match',
+            icon: Icon(Icons.event_outlined),
+            activeIcon: Icon(Icons.event),
+            label: 'Event',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.chat_bubble_outline),

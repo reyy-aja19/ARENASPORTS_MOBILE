@@ -317,35 +317,38 @@ class LocalAppDataService {
     final rawBookings = prefs.getString(key);
     if (rawBookings != null) {
       final bookings = _decodeList(rawBookings);
-      if (_applyAutoCompletion(bookings)) {
-        await prefs.setString(key, jsonEncode(bookings));
+      final cleaned = _removeLegacyDemoBookings(bookings);
+      if (cleaned.length != bookings.length) {
+        await prefs.setString(key, jsonEncode(cleaned));
+        return cleaned;
       }
-      return bookings;
+      if (_applyAutoCompletion(cleaned)) {
+        await prefs.setString(key, jsonEncode(cleaned));
+      }
+      return cleaned;
     }
 
-    final now = DateTime.now();
-    final sampleBookings = [
-      _booking(
-        id: userId * 1000 + 1,
-        userId: userId,
-        date: _date(now.add(const Duration(days: 1))),
-        startTime: '19:00',
-        endTime: '20:00',
-        totalPrice: 150000,
-        status: 'lunas',
-      ),
-      _booking(
-        id: userId * 1000 + 2,
-        userId: userId,
-        date: _date(now.subtract(const Duration(days: 3))),
-        startTime: '17:00',
-        endTime: '18:00',
-        totalPrice: 150000,
-        status: 'selesai',
-      ),
-    ];
-    await prefs.setString(key, jsonEncode(sampleBookings));
-    return sampleBookings;
+    await prefs.setString(key, jsonEncode(<Map<String, dynamic>>[]));
+    return [];
+  }
+
+  /// Menghapus data contoh lama yang pernah dibuat otomatis oleh aplikasi.
+  /// Hanya data bawaan dengan nama default yang dihapus, bukan booking
+  /// yang dibuat pengguna dari detail lapangan.
+  static List<Map<String, dynamic>> _removeLegacyDemoBookings(
+    List<Map<String, dynamic>> bookings,
+  ) {
+    return bookings.where((booking) {
+      final lapangan = booking['lapangan'];
+      final fieldName = lapangan is Map ? lapangan['nama']?.toString() : null;
+      final paymentMethod = booking['payment_method']?.toString();
+      final isLegacySample =
+          fieldName == 'Lapangan Futsal Indramayu' &&
+          paymentMethod == 'Simulasi lokal' &&
+          booking['lapangan_id'] == 1 &&
+          booking['total_price'] == 150000;
+      return !isLegacySample;
+    }).toList();
   }
 
   static Map<String, dynamic> _booking({
@@ -402,7 +405,11 @@ class LocalAppDataService {
     )) {
       final raw = prefs.getString(key);
       if (raw == null) continue;
-      for (final booking in _decodeList(raw)) {
+      final bookings = _removeLegacyDemoBookings(_decodeList(raw));
+      if (jsonEncode(bookings) != raw) {
+        await prefs.setString(key, jsonEncode(bookings));
+      }
+      for (final booking in bookings) {
         if (booking['lapangan_id'] != fieldId ||
             booking['booking_date'] != date ||
             ![
@@ -532,35 +539,114 @@ class LocalAppDataService {
       final seeded = [
         MatchModel(
           id: 1,
-          title: 'Futsal Santai Sore',
-          jenis: 'Futsal',
-          tanggal: _date(now.add(const Duration(days: 1))),
-          startTime: '19:00',
-          endTime: '20:00',
-          jumlahPemain: 10,
-          jumlahBergabung: 6,
+          title: 'Turnamen Badminton Kelapa Gading Cup',
+          jenis: 'Badminton',
+          tanggal: _date(now.add(const Duration(days: 7))),
+          startTime: '08:00',
+          endTime: '17:00',
+          jumlahPemain: 32,
+          jumlahBergabung: 18,
           status: 'Open',
-          deskripsi: 'Main santai, semua level boleh ikut.',
+          deskripsi:
+              'Turnamen resmi ArenaSports untuk komunitas badminton Indramayu.',
+          eventType: 'tournament',
+          organizer: 'ArenaSports Admin',
+          registrationFee: 50000,
+          prize: 'Piala juara + Rp 3.000.000',
         ),
         MatchModel(
           id: 2,
-          title: 'Badminton Weekend',
-          jenis: 'Badminton',
-          tanggal: _date(now.add(const Duration(days: 2))),
+          title: 'Turnamen Futsal Antar Komunitas',
+          jenis: 'Futsal',
+          tanggal: _date(now.add(const Duration(days: 14))),
           startTime: '09:00',
-          endTime: '11:00',
-          jumlahPemain: 4,
-          jumlahBergabung: 2,
+          endTime: '16:00',
+          jumlahPemain: 16,
+          jumlahBergabung: 10,
           status: 'Open',
-          deskripsi: 'Cari partner doubles untuk akhir pekan.',
+          deskripsi:
+              'Ajang turnamen tim futsal komunal, terbuka untuk semua tingkat.',
+          eventType: 'tournament',
+          organizer: 'ArenaSports Admin',
+          registrationFee: 0,
+          prize: 'Piala juara + Rp 1.500.000',
         ),
       ];
       matches = jsonEncode(seeded.map((match) => match.toJson()).toList());
       await prefs.setString('local_matches', matches);
     }
 
-    return _decodeList(matches).map(MatchModel.fromJson).toList()
-      ..sort((first, second) => first.tanggal.compareTo(second.tanggal));
+    final decoded = _decodeList(matches).map(MatchModel.fromJson).toList();
+    final now = DateTime.now();
+    final removable = decoded.where((match) {
+      final endAt = _matchDateTime(match.tanggal, match.endTime);
+      final isFinished = endAt != null && !endAt.isAfter(now);
+      final isLegacySample =
+          match.eventType == 'open_match' &&
+          const {
+            'Futsal Santai Sore',
+            'Badminton Weekend',
+          }.contains(match.title);
+      return isFinished || isLegacySample;
+    }).toList();
+
+    if (removable.isNotEmpty) {
+      final remaining = decoded
+          .where((match) => !removable.contains(match))
+          .toList();
+      await _removeMatchArtifacts(removable);
+      await prefs.setString(
+        'local_matches',
+        jsonEncode(remaining.map((match) => match.toJson()).toList()),
+      );
+      matches = jsonEncode(remaining.map((match) => match.toJson()).toList());
+    }
+
+    final cleaned = _decodeList(matches).map(MatchModel.fromJson).toList();
+    cleaned.sort((first, second) {
+      final dateOrder = first.tanggal.compareTo(second.tanggal);
+      if (dateOrder != 0) return dateOrder;
+      return first.startTime.compareTo(second.startTime);
+    });
+    return cleaned;
+  }
+
+  static DateTime? _matchDateTime(String date, String time) {
+    final parts = date.split('-');
+    if (parts.length != 3) return null;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2]);
+    if (year == null || month == null || day == null) return null;
+
+    final timeParts = time.split(':');
+    final hour = int.tryParse(timeParts.first);
+    final minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) : 0;
+    if (hour == null || minute == null) return null;
+
+    return DateTime(year, month, day, hour, minute);
+  }
+
+  static Future<void> _removeMatchArtifacts(List<MatchModel> matches) async {
+    if (matches.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final ids = matches.map((match) => match.id.toString()).toSet();
+
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith('local_joined_matches_') &&
+          !key.startsWith('local_created_matches_')) {
+        continue;
+      }
+      final current = prefs.getStringList(key) ?? [];
+      final updated = current.where((id) => !ids.contains(id)).toList();
+      if (updated.length != current.length) {
+        await prefs.setStringList(key, updated);
+      }
+    }
+
+    for (final match in matches) {
+      await prefs.remove('local_match_messages_${match.id}');
+    }
   }
 
   static Future<int> createMatch(MatchModel match) async {
@@ -1020,6 +1106,15 @@ class LocalAppDataService {
     }
 
     final match = matches[index];
+    final matchStart = _matchDateTime(match.tanggal, match.startTime);
+    if (matchStart != null && !DateTime.now().isBefore(matchStart)) {
+      return {
+        'success': false,
+        'message': match.isTournament
+            ? 'Turnamen sudah dimulai. Pendaftaran telah ditutup.'
+            : 'Match sudah dimulai. Pendaftaran telah ditutup.',
+      };
+    }
     if (match.jumlahBergabung >= match.jumlahPemain) {
       return {'success': false, 'message': 'Match sudah penuh.'};
     }

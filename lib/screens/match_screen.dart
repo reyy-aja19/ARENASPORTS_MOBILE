@@ -20,6 +20,8 @@ class _MatchScreenState extends State<MatchScreen> {
   bool _isCheckingSession = true;
   Set<int> _joinedMatchIds = {};
   Set<int> _createdMatchIds = {};
+  String _selectedEventType = 'open_match';
+  Timer? _clockTimer;
 
   @override
   void initState() {
@@ -27,11 +29,15 @@ class _MatchScreenState extends State<MatchScreen> {
     futureMatches = Future.value([]);
     _loadSession();
     MatchApi.dataRevision.addListener(_onMatchDataChanged);
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_isGuest) _reloadMatchData();
+    });
   }
 
   @override
   void dispose() {
     MatchApi.dataRevision.removeListener(_onMatchDataChanged);
+    _clockTimer?.cancel();
     super.dispose();
   }
 
@@ -70,6 +76,89 @@ class _MatchScreenState extends State<MatchScreen> {
   void _refreshData() {
     if (_isGuest) return;
     _reloadMatchData();
+  }
+
+  DateTime? _eventDateTime(String date, String time) {
+    final dateParts = date.split('-');
+    if (dateParts.length != 3) return null;
+    final year = int.tryParse(dateParts[0]);
+    final month = int.tryParse(dateParts[1]);
+    final day = int.tryParse(dateParts[2]);
+    if (year == null || month == null || day == null) return null;
+
+    final timeParts = time.split(':');
+    final hour = int.tryParse(timeParts.first);
+    final minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) : 0;
+    if (hour == null || minute == null) return null;
+
+    return DateTime(year, month, day, hour, minute);
+  }
+
+  bool _eventStarted(MatchModel event) {
+    final start = _eventDateTime(event.tanggal, event.startTime);
+    return start != null && !DateTime.now().isBefore(start);
+  }
+
+  List<MatchModel> _filteredEvents(List<MatchModel> matches) {
+    return matches
+        .where((match) => match.eventType == _selectedEventType)
+        .toList();
+  }
+
+  Widget _buildEventTabs() {
+    final tabs = [
+      ('open_match', 'Open Match', Icons.groups_rounded),
+      ('tournament', 'Turnamen', Icons.emoji_events_rounded),
+    ];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(15, 12, 15, 0),
+      child: Row(
+        children: tabs.map((tab) {
+          final selected = _selectedEventType == tab.$1;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: InkWell(
+                onTap: () => setState(() => _selectedEventType = tab.$1),
+                borderRadius: BorderRadius.circular(14),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: selected ? const Color(0xFF00A32A) : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        tab.$3,
+                        size: 18,
+                        color: selected ? Colors.white : Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        tab.$2,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: selected ? Colors.white : Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
   }
 
   Future<void> _handleJoin(MatchModel match) async {
@@ -138,7 +227,7 @@ class _MatchScreenState extends State<MatchScreen> {
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: const Text(
-          "Cari Lawan ",
+          "Event",
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
         ),
         backgroundColor: Colors.white,
@@ -155,60 +244,73 @@ class _MatchScreenState extends State<MatchScreen> {
           ? const Center(child: CircularProgressIndicator())
           : GuestAccessOverlay(
               isGuest: _isGuest,
-              message: 'Login untuk melihat dan bergabung ke Open Match.',
-              child: FutureBuilder<List<MatchModel>>(
-                future: futureMatches,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF00A32A),
-                      ),
-                    );
-                  }
+              message: 'Login untuk melihat dan bergabung ke Event.',
+              child: Column(
+                children: [
+                  _buildEventTabs(),
+                  Expanded(
+                    child: FutureBuilder<List<MatchModel>>(
+                      future: futureMatches,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF00A32A),
+                            ),
+                          );
+                        }
 
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.error_outline,
-                            size: 50,
-                            color: Colors.red,
+                        if (snapshot.hasError) {
+                          return Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  size: 50,
+                                  color: Colors.red,
+                                ),
+                                const SizedBox(height: 10),
+                                Text("Waduh! ${snapshot.error}"),
+                                TextButton(
+                                  onPressed: _refreshData,
+                                  child: const Text("Coba Lagi"),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        final matches = _filteredEvents(snapshot.data ?? []);
+                        if (matches.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Text(
+                                _selectedEventType == 'open_match'
+                                    ? 'Belum ada Open Match.\nBuat dari riwayat booking yang sudah lunas.'
+                                    : 'Belum ada Turnamen dari Admin.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          );
+                        }
+
+                        return RefreshIndicator(
+                          onRefresh: () async => _refreshData(),
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(15),
+                            itemCount: matches.length,
+                            itemBuilder: (context, index) {
+                              return _matchCard(matches[index]);
+                            },
                           ),
-                          const SizedBox(height: 10),
-                          Text("Waduh! ${snapshot.error}"),
-                          TextButton(
-                            onPressed: _refreshData,
-                            child: const Text("Coba Lagi"),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final matches = snapshot.data ?? [];
-                  if (matches.isEmpty) {
-                    return Center(
-                      child: Text(
-                        'Belum ada yang buka match nih, coy!',
-                        textAlign: TextAlign.center,
-                      ),
-                    );
-                  }
-
-                  return RefreshIndicator(
-                    onRefresh: () async => _refreshData(),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(15),
-                      itemCount: matches.length,
-                      itemBuilder: (context, index) {
-                        return _matchCard(matches[index]);
+                        );
                       },
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
             ),
     );
@@ -218,6 +320,7 @@ class _MatchScreenState extends State<MatchScreen> {
     bool isFull = match.jumlahBergabung >= match.jumlahPemain;
     bool isJoined = _joinedMatchIds.contains(match.id);
     bool isCreator = _createdMatchIds.contains(match.id);
+    bool isStarted = _eventStarted(match);
     bool canChat = isJoined || isCreator;
 
     return Container(
@@ -260,6 +363,28 @@ class _MatchScreenState extends State<MatchScreen> {
                             const SizedBox(height: 4),
                             Row(
                               children: [
+                                _eventTypeBadge(match.eventType),
+                                const SizedBox(width: 6),
+                                Icon(
+                                  match.isTournament
+                                      ? Icons.verified_user_outlined
+                                      : Icons.person_outline,
+                                  size: 14,
+                                  color: Colors.blueGrey,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  match.organizer,
+                                  style: const TextStyle(
+                                    color: Colors.blueGrey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
                                 const Icon(
                                   Icons.location_on,
                                   size: 14,
@@ -277,23 +402,34 @@ class _MatchScreenState extends State<MatchScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              "${match.tanggal.length >= 10 ? match.tanggal.substring(0, 10) : match.tanggal} • ${match.startTime}",
+                              "${match.tanggal.length >= 10 ? match.tanggal.substring(0, 10) : match.tanggal} • ${match.startTime} - ${match.endTime}",
                               style: const TextStyle(
                                 color: Colors.grey,
                                 fontSize: 12,
                               ),
                             ),
+                            if (match.isTournament) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                "Biaya: ${match.registrationFee == 0 ? 'GRATIS' : 'Rp ${match.registrationFee}'} • ${match.prize.isEmpty ? 'Turnamen resmi' : match.prize}",
+                                style: const TextStyle(
+                                  color: Color(0xFF1E2A2B),
+                                  fontSize: 11,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                      _buildStatusBadge(isFull, match),
+                      _buildStatusBadge(isFull, isStarted, match),
                     ],
                   ),
                   const Divider(height: 25),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: (isFull || isJoined || isCreator)
+                      onPressed: (isFull || isJoined || isCreator || isStarted)
                           ? null
                           : () => _handleJoin(match),
                       icon: Icon(
@@ -301,17 +437,27 @@ class _MatchScreenState extends State<MatchScreen> {
                             ? Icons.workspace_premium_rounded
                             : (isJoined
                                   ? Icons.check_circle_outline
-                                  : Icons.group_add_outlined),
+                                  : (isStarted
+                                        ? Icons.block_rounded
+                                        : Icons.group_add_outlined)),
                         size: 18,
                       ),
                       label: Text(
                         isCreator
-                            ? "ANDA PEMBUAT MATCH"
+                            ? 'ANDA PEMBUAT MATCH'
                             : (isJoined
-                                  ? "SUDAH BERGABUNG"
-                                  : (isFull
-                                        ? "MATCH PENUH"
-                                        : "BERGABUNG DI MATCH")),
+                                  ? 'SUDAH BERGABUNG'
+                                  : (isStarted
+                                        ? (match.isTournament
+                                              ? 'TURNAMEN SUDAH DIMULAI'
+                                              : 'MATCH SUDAH DIMULAI')
+                                        : (isFull
+                                              ? (match.isTournament
+                                                    ? 'TURNAMEN PENUH'
+                                                    : 'MATCH PENUH')
+                                              : (match.isTournament
+                                                    ? 'DAFTAR TURNAMEN'
+                                                    : 'BERGABUNG DI MATCH')))),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00A32A),
@@ -401,6 +547,7 @@ class _MatchScreenState extends State<MatchScreen> {
       ),
       builder: (sheetContext) => StatefulBuilder(
         builder: (sheetContext, setSheetState) {
+          final isStarted = _eventStarted(match);
           final isJoined = _joinedMatchIds.contains(match.id);
           final isCreator = _createdMatchIds.contains(match.id);
           final canChat = isJoined || isCreator;
@@ -438,6 +585,34 @@ class _MatchScreenState extends State<MatchScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _eventTypeBadge(match.eventType),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          match.organizer,
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (match.isTournament) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Biaya: ${match.registrationFee == 0 ? "GRATIS" : "Rp ${match.registrationFee}"}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    if (match.prize.isNotEmpty)
+                      Text(
+                        match.prize,
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                  ],
                   const Divider(height: 30),
                   _detailRow(
                     Icons.calendar_today,
@@ -474,7 +649,7 @@ class _MatchScreenState extends State<MatchScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: (isJoined || isCreator || isFull)
+                      onPressed: (isJoined || isCreator || isFull || isStarted)
                           ? null
                           : () async {
                               await _handleJoin(match);
@@ -485,17 +660,27 @@ class _MatchScreenState extends State<MatchScreen> {
                             ? Icons.workspace_premium_rounded
                             : (isJoined
                                   ? Icons.check_circle_outline
-                                  : Icons.group_add_outlined),
+                                  : (isStarted
+                                        ? Icons.block_rounded
+                                        : Icons.group_add_outlined)),
                         size: 18,
                       ),
                       label: Text(
                         isCreator
-                            ? "ANDA PEMBUAT MATCH"
+                            ? 'ANDA PEMBUAT MATCH'
                             : (isJoined
-                                  ? "SUDAH BERGABUNG"
-                                  : (isFull
-                                        ? "MATCH PENUH"
-                                        : "BERGABUNG DI MATCH")),
+                                  ? 'SUDAH BERGABUNG'
+                                  : (isStarted
+                                        ? (match.isTournament
+                                              ? 'TURNAMEN SUDAH DIMULAI'
+                                              : 'MATCH SUDAH DIMULAI')
+                                        : (isFull
+                                              ? (match.isTournament
+                                                    ? 'TURNAMEN PENUH'
+                                                    : 'MATCH PENUH')
+                                              : (match.isTournament
+                                                    ? 'DAFTAR TURNAMEN'
+                                                    : 'BERGABUNG DI MATCH')))),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00A32A),
@@ -591,7 +776,10 @@ class _MatchScreenState extends State<MatchScreen> {
     );
   }
 
-  Widget _buildStatusBadge(bool isFull, MatchModel match) {
+  Widget _buildStatusBadge(bool isFull, bool isStarted, MatchModel match) {
+    final eventLabel = match.isTournament ? 'TURNAMEN' : 'OPEN MATCH';
+    final statusLabel = isStarted ? 'MULAI' : (isFull ? 'PENUH' : 'OPEN');
+    final color = isStarted || isFull ? Colors.orange : const Color(0xFF00A32A);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -600,18 +788,46 @@ class _MatchScreenState extends State<MatchScreen> {
           style: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 18,
-            color: isFull ? Colors.red : const Color(0xFF00A32A),
+            color: color,
           ),
         ),
         Text(
-          isFull ? "FULL" : "OPEN",
+          isStarted ? statusLabel : statusLabel,
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.bold,
-            color: isFull ? Colors.red : const Color(0xFF00A32A),
+            color: color,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          eventLabel,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: match.isTournament ? Colors.amber.shade800 : Colors.blueGrey,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _eventTypeBadge(String eventType) {
+    final isTournament = eventType == 'tournament';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isTournament ? const Color(0xFFFFF7D6) : const Color(0xFFE8F5EB),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        isTournament ? 'TURNAMEN' : 'OPEN MATCH',
+        style: TextStyle(
+          color: isTournament ? Colors.amber.shade800 : const Color(0xFF00A32A),
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 }

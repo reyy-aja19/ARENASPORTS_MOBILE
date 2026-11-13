@@ -27,7 +27,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Login untuk melihat dan bergabung ke Open Match.'),
+      find.text('Login untuk melihat dan bergabung ke Event.'),
       findsOneWidget,
     );
     expect(find.text('Login'), findsOneWidget);
