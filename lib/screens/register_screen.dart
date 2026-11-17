@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../services/local_auth_service.dart';
+import '../services/api_client.dart';
+import '../services/auth_api.dart';
 import '../widgets/slider_captcha.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -14,6 +15,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
   bool _isLoading = false;
 
   bool _captchaVerified = false;
@@ -23,6 +25,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final String email = _emailController.text.trim();
     final String phone = _phoneController.text.trim();
     final String password = _passwordController.text.trim();
+    final String confirm = _confirmController.text.trim();
 
     if (name.isEmpty || email.isEmpty || phone.isEmpty || password.isEmpty) {
       _showSnackBar(
@@ -42,6 +45,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    if (password != confirm) {
+      _showSnackBar("Konfirmasi password tidak sama.", Colors.orange);
+      return;
+    }
+
     if (!_captchaVerified) {
       _showSnackBar(
         "Selesaikan verifikasi puzzle terlebih dahulu.",
@@ -53,7 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await LocalAuthService.register(
+      await AuthApi.register(
         name: name,
         email: email,
         phone: phone,
@@ -63,10 +71,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/success_auth');
       }
-    } on LocalAuthException catch (e) {
+    } on ApiException catch (e) {
       _showSnackBar(e.message, Colors.red);
     } catch (e) {
-      _showSnackBar("Gagal menyimpan akun di perangkat: $e", Colors.red);
+      _showSnackBar("Gagal mendaftar: $e", Colors.red);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -108,6 +116,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
               "Password",
               _passwordController,
               Icons.lock,
+              isPassword: true,
+            ),
+            const SizedBox(height: 15),
+            _inputField(
+              "Konfirmasi Password",
+              _confirmController,
+              Icons.lock_outline,
               isPassword: true,
             ),
             const SizedBox(height: 24),
@@ -198,6 +213,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
+    _confirmController.dispose();
     super.dispose();
   }
 }

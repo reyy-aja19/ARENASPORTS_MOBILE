@@ -6,6 +6,7 @@ class NotificationModel {
   final String type;
   final bool isRead;
   final DateTime createdAt;
+  final String? url;
 
   NotificationModel({
     String? id,
@@ -15,6 +16,7 @@ class NotificationModel {
     this.type = 'info',
     this.isRead = false,
     DateTime? createdAt,
+    this.url,
   }) : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
        createdAt = createdAt ?? DateTime.now(),
        time = time ?? _formatTime(createdAt ?? DateTime.now());
@@ -33,17 +35,21 @@ class NotificationModel {
   }
 
   factory NotificationModel.fromJson(Map<String, dynamic> json) {
-    final createdAt = json['createdAt'] != null
-        ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
-        : DateTime.now();
+    final rawCreatedAt = json['created_at'] ?? json['createdAt'];
+    final createdAt = rawCreatedAt == null
+        ? DateTime.now()
+        : DateTime.tryParse(rawCreatedAt.toString())?.toLocal() ??
+              DateTime.now();
+
     return NotificationModel(
       id: json['id']?.toString(),
-      title: json['title']?.toString() ?? '',
+      title: json['title']?.toString() ?? 'Notifikasi',
       message: json['message']?.toString() ?? '',
       time: json['time']?.toString(),
       type: json['type']?.toString() ?? 'info',
-      isRead: json['isRead'] == true,
+      isRead: json['is_read'] == true || json['isRead'] == true,
       createdAt: createdAt,
+      url: json['url']?.toString(),
     );
   }
 
@@ -53,8 +59,9 @@ class NotificationModel {
     'message': message,
     'time': time,
     'type': type,
-    'isRead': isRead,
-    'createdAt': createdAt.toIso8601String(),
+    'is_read': isRead,
+    'created_at': createdAt.toIso8601String(),
+    'url': url,
   };
 
   NotificationModel copyWith({bool? isRead}) => NotificationModel(
@@ -65,5 +72,6 @@ class NotificationModel {
     type: type,
     isRead: isRead ?? this.isRead,
     createdAt: createdAt,
+    url: url,
   );
 }

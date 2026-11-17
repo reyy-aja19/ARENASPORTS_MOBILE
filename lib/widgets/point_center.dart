@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'package:penyewaan_lapangan/services/api_service.dart';
+
+import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../services/session_service.dart';
 import '../utils/auth_guard.dart';
 import 'app_dialog.dart';
+import 'app_network_image.dart';
 import 'points_category_card.dart';
 
-/// Konten poin dan reward yang bisa dipasang langsung di halaman Home.
+/// Konten poin dan reward berbasis API Laravel.
 class PointCenter extends StatefulWidget {
   const PointCenter({
     super.key,
@@ -22,179 +24,141 @@ class PointCenter extends StatefulWidget {
 }
 
 class _PointCenterState extends State<PointCenter> {
-  static const List<Map<String, dynamic>> _guestRewards = [
-    {'id': 1, 'name': 'Voucher Booking Rp25.000', 'points': 100},
-    {'id': 2, 'name': 'Diskon Booking 10%', 'points': 50},
-    {'id': 3, 'name': 'Minuman Gratis', 'points': 25},
-  ];
-
-  final ApiService _apiService = ApiService();
   int _userPoints = 0;
   bool _isGuest = true;
   String? _pointsError;
-  List<dynamic> _rewards = [];
+  List<Map<String, dynamic>> _rewards = const [];
+  List<Map<String, dynamic>> _redemptions = const [];
   String? _rewardsError;
-  bool _isLoadingRewards = true;
+  bool _isLoading = true;
   bool _isProcessingRedeem = false;
+  bool _isInitializing = false;
+  late String _category;
 
   @override
   void initState() {
     super.initState();
+    _category = widget.selectedCategory;
+    SessionService.revision.addListener(_onSessionChanged);
     _initializeScreen();
   }
 
-  Future<void> _initializeScreen() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    final isGuest = token == null || token.isEmpty;
+  @override
+  void dispose() {
+    SessionService.revision.removeListener(_onSessionChanged);
+    super.dispose();
+  }
 
+  void _onSessionChanged() {
+    if (mounted) _initializeScreen();
+  }
+
+  Future<void> _initializeScreen() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
+    try {
+      await _loadRewards();
+    } finally {
+      _isInitializing = false;
+    }
+  }
+
+  Future<void> _loadRewards() async {
+    final isLoggedIn = await SessionService.isLoggedIn();
     if (!mounted) return;
-    if (!isGuest && prefs.getString('auth_mode') == 'local') {
-      final rawUser = prefs.getString('user');
-      final user = rawUser == null
-          ? <String, dynamic>{}
-          : jsonDecode(rawUser) as Map<String, dynamic>;
+
+    if (!isLoggedIn) {
       setState(() {
-        _isGuest = false;
-        _userPoints = (user['points'] as num?)?.toInt() ?? 0;
-        _pointsError = null;
-        _rewards = _guestRewards;
-        _isLoadingRewards = false;
+        _isGuest = true;
+        _userPoints = 0;
+        _pointsError = 'Login untuk melihat poin akun.';
+        _rewardsError = 'Login untuk melihat dan menukar reward.';
+        _isLoading = false;
       });
       return;
     }
 
     setState(() {
-      _isGuest = isGuest;
-      if (isGuest) {
-        _pointsError = 'Login untuk melihat poin akun.';
-        _rewards = _guestRewards;
-        _isLoadingRewards = false;
-      }
-    });
-
-    if (!isGuest) {
-      await Future.wait([_loadUserPoints(), _fetchRewardsFromApi()]);
-    }
-  }
-
-  Future<void> _refreshPage() async {
-    setState(() {
-      _isLoadingRewards = true;
+      _isGuest = false;
+      _pointsError = null;
       _rewardsError = null;
+      _isLoading = true;
     });
-    await _initializeScreen();
-  }
 
-  // 1. Ambil poin user dari lokal data pencatatan login
-  Future<void> _loadUserPoints() async {
+    final cachedPoints = await SessionService.points();
+    if (mounted) setState(() => _userPoints = cachedPoints);
+
     try {
-      final result = await _apiService.getUserProfile();
-
-      if (result == null) {
-        print("User API null");
-        if (mounted) {
-          setState(() {
-            _pointsError = 'Login dengan akun untuk melihat poin.';
-          });
-        }
-        return;
-      }
-
+      final data = await ApiService.instance.rewards();
+      if (!mounted) return;
       setState(() {
-        _userPoints = result['points'] ?? 0;
+        _userPoints = data.points;
+        _rewards = data.rewards;
+        _redemptions = data.redemptions;
         _pointsError = null;
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user', jsonEncode(result));
-    } catch (e) {
-      print("Error load user points: $e");
-    }
-  }
-
-  // 2. Ambil list reward sesuai yang diinput di Web Admin
-  Future<void> _fetchRewardsFromApi() async {
-    try {
-      final result = await _apiService.getRewards();
-      if (!mounted) return;
-      setState(() {
-        final success = result['status'] == true;
-        _rewards = success ? result['data'] ?? [] : [];
-        _rewardsError = success
-            ? null
-            : result['message']?.toString() ?? 'Gagal memuat daftar reward.';
-        _isLoadingRewards = false;
+        _rewardsError = null;
+        _isLoading = false;
       });
     } catch (e) {
-      print("Error fetch rewards: $e");
       if (!mounted) return;
       setState(() {
-        _rewardsError = 'Gagal memuat reward: $e';
-        _isLoadingRewards = false;
+        _rewardsError = e is ApiException
+            ? e.message
+            : 'Gagal memuat reward: $e';
+        _isLoading = false;
       });
     }
   }
 
-  void _retryRewards() {
-    setState(() {
-      _isLoadingRewards = true;
-      _rewardsError = null;
-    });
-    _fetchRewardsFromApi();
-  }
-
-  // 3. Proses penukaran poin & memunculkan Bukti Klaim (Kode Redeem/QR)
-  Future<void> _handleRedeem(
-    int rewardId,
-    int pointsCost,
-    String rewardName,
-  ) async {
+  Future<void> _handleRedeem(Map<String, dynamic> reward) async {
     final isAuthenticated = await requireAuthenticatedUser(
       context,
       message: 'Login terlebih dahulu untuk menukar reward.',
     );
     if (!mounted || !isAuthenticated) return;
+
+    final rewardId = (reward['id'] as num?)?.toInt() ?? 0;
+    final rewardName = reward['title']?.toString() ?? 'Reward';
+    final cost = (reward['points_required'] as num?)?.toInt() ?? 0;
+
+    if (rewardId == 0) return;
+
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: 'Tukar Reward',
+      message: 'Tukar $cost poin dengan "$rewardName"?',
+      icon: Icons.card_giftcard,
+      confirmLabel: 'Tukar',
+      cancelLabel: 'Batal',
+    );
+    if (!confirmed || !mounted) return;
+
     setState(() => _isProcessingRedeem = true);
-
     try {
-      final result = await _apiService.redeemReward(rewardId: rewardId);
+      final result = await ApiService.instance.redeemReward(rewardId);
+      final redemption = result['redemption'];
+      final code = redemption is Map ? redemption['qr_code']?.toString() : null;
 
-      if (result['status'] == true) {
-        // Ambil data kode redeem atau link QR dari response backend Laravel
-        String redeemCode = result['kode_redeem'] ?? 'KODE-REDEEM-OK';
-        String? qrUrl = result['qr_url'];
-
-        // Update SharedPreferences lokal dengan sisa poin terbaru dari server
-        final prefs = await SharedPreferences.getInstance();
-        final String? userRaw = prefs.getString('user');
-        if (userRaw != null) {
-          Map<String, dynamic> userData = jsonDecode(userRaw);
-          userData['points'] =
-              result['current_points'] ?? (_userPoints - pointsCost);
-          await prefs.setString('user', jsonEncode(userData));
-        }
-
-        // Refresh poin di UI aplikasi
-        await _loadUserPoints();
-
-        // Tampilkan dialog sukses beserta kode klaim untuk diserahkan ke admin
-        if (mounted) {
-          _showSuccessDialog(rewardName, redeemCode, qrUrl);
-        }
-      } else {
-        _showSnackBar(result['message'] ?? "Gagal menukarkan poin", Colors.red);
-      }
+      if (!mounted) return;
+      setState(() {
+        _userPoints = (result['points'] as num?)?.toInt() ?? _userPoints;
+      });
+      await _initializeScreen();
+      if (!mounted) return;
+      _showSuccessDialog(rewardName, code);
     } catch (e) {
-      print("Error redeem: $e");
-      _showSnackBar("Terjadi kesalahan sistem penukaran", Colors.red);
+      if (mounted) {
+        _showSnackBar(
+          e is ApiException ? e.message : 'Gagal menukarkan poin.',
+          Colors.red,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isProcessingRedeem = false);
     }
   }
 
-  // Dialog sukses yang menampilkan Kode Redeem / QR sesuai tabel web admin
-  void _showSuccessDialog(String rewardName, String code, String? qrUrl) {
+  void _showSuccessDialog(String rewardName, String? code) {
     showAppInfoDialog(
       context,
       title: 'Penukaran Berhasil',
@@ -205,7 +169,7 @@ class _PointCenterState extends State<PointCenter> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            "KODE REDEEM KAMU:",
+            'KODE REDEEM KAMU',
             style: TextStyle(
               color: Colors.grey,
               fontSize: 12,
@@ -221,22 +185,28 @@ class _PointCenterState extends State<PointCenter> {
               border: Border.all(color: const Color(0xFFBFE5CB)),
             ),
             child: Text(
-              code,
+              code ?? '-',
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
+                letterSpacing: 1.2,
                 color: Color(0xFF007A2A),
               ),
             ),
           ),
-          if (qrUrl != null) ...[
+          if (code != null && code.isNotEmpty) ...[
             const SizedBox(height: 15),
             Image.network(
-              qrUrl,
-              height: 120,
-              width: 120,
+              'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=$code',
+              height: 140,
+              width: 140,
               errorBuilder: (c, e, s) => const Icon(Icons.qr_code, size: 100),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tunjukkan kode atau QR ini ke Admin Venue.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
           ],
         ],
@@ -245,198 +215,404 @@ class _PointCenterState extends State<PointCenter> {
   }
 
   void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PointsCategoryCard(
           points: _userPoints,
           pointsError: _pointsError,
-          selectedCategory: widget.selectedCategory,
-          onCategoryChanged: widget.onCategoryChanged ?? (_) {},
+          selectedCategory: _category,
+          onCategoryChanged: (value) {
+            setState(() => _category = value);
+            widget.onCategoryChanged?.call(value);
+          },
         ),
+        const SizedBox(height: 18),
+        _buildPointsSummary(),
         const SizedBox(height: 18),
         Row(
           children: [
             const Expanded(
               child: Text(
-                "Daftar Reward",
+                'Daftar Reward',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
               ),
             ),
             IconButton(
               tooltip: 'Refresh poin dan reward',
-              onPressed: _refreshPage,
+              onPressed: _initializeScreen,
               icon: const Icon(Icons.refresh_rounded, color: Color(0xFF00A32A)),
             ),
           ],
         ),
         const SizedBox(height: 8),
-
-        // Membaca data dinamis dari Admin Web Laravel
-        _isLoadingRewards
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: CircularProgressIndicator(color: Color(0xFF00A32A)),
-                ),
-              )
-            : _rewardsError != null
-            ? Column(
-                children: [
-                  Text(_rewardsError!, textAlign: TextAlign.center),
-                  TextButton.icon(
-                    onPressed: _retryRewards,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Coba Lagi'),
-                  ),
-                ],
-              )
-            : _rewards.isEmpty
-            ? const Center(child: Text("Tidak ada reward aktif saat ini."))
-            : SizedBox(
-                height: 190,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: _rewards.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final item = _rewards[index];
-
-                    // Pastikan penamaan key JSON sesuai dengan response API Laravel kamu
-                    // Contoh: item['poin'] atau item['points_required']
-                    return _rewardTile(
-                      id: item['id'] ?? 0,
-                      title: item['name'] ?? item['title'] ?? '',
-                      costValue: item['points'] ?? item['points_required'] ?? 0,
-                      imagePath:
-                          item['image_url'], // jika admin mengirim url image dari public/storage
-                    );
-                  },
-                ),
+        if (_isGuest)
+          _buildLoginPrompt()
+        else if (_isLoading)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(
+              child: CircularProgressIndicator(color: Color(0xFF00A32A)),
+            ),
+          )
+        else if (_rewardsError != null)
+          Column(
+            children: [
+              Text(_rewardsError!, textAlign: TextAlign.center),
+              TextButton.icon(
+                onPressed: _initializeScreen,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Coba Lagi'),
               ),
+            ],
+          )
+        else if (_rewards.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: Text('Belum ada reward aktif saat ini.')),
+          )
+        else
+          ..._rewards.map(_buildRewardCard),
+        if (!_isGuest && _redemptions.isNotEmpty) ...[
+          const SizedBox(height: 22),
+          const Text(
+            'Riwayat Penukaran',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          const SizedBox(height: 8),
+          ..._redemptions.map(_buildRedemptionCard),
+        ],
       ],
     );
   }
 
-  Widget _rewardTile({
-    required int id,
-    required String title,
-    required int costValue,
-    String? imagePath,
-  }) {
-    final canRedeem = _isGuest || _userPoints >= costValue;
-
-    return SizedBox(
-      width: 185,
-      height: 178,
-      child: Card(
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: imagePath != null
-                        ? Image.network(
-                            imagePath,
-                            width: 46,
-                            height: 46,
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => _fallbackIcon(title),
-                          )
-                        : _fallbackIcon(title),
-                  ),
-                  const Spacer(),
-                  Text(
-                    "$costValue Poin",
-                    style: const TextStyle(
-                      color: Color(0xFF00A32A),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    height: 1.25,
-                  ),
-                ),
-              ),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: (canRedeem && !_isProcessingRedeem)
-                      ? () => _handleRedeem(id, costValue, title)
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00A32A),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                  child: _isProcessingRedeem
-                      ? const SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          "Tukar",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
+  Widget _buildPointsSummary() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF00A32A), Color(0xFF13C24C)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.monetization_on_rounded,
+              color: Color(0xFFFFE082),
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Saldo Poin Kamu',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                Text(
+                  '$_userPoints Poin',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const Text(
+                  'Dapatkan 10 poin setiap pembayaran berhasil.',
+                  style: TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // Jika URL Gambar dari backend kosong, otomatis pakai icon penunjang berdasarkan judul di Admin
+  Widget _buildLoginPrompt() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.lock_outline, size: 40, color: Color(0xFF00A32A)),
+          const SizedBox(height: 10),
+          const Text(
+            'Login diperlukan',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Masuk ke akun ArenaSports untuk melihat saldo poin, daftar reward, dan riwayat penukaran.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade600, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: () async {
+              final authenticated = await requireAuthenticatedUser(
+                context,
+                message: 'Login untuk melihat poin dan reward kamu.',
+              );
+              if (authenticated && mounted) _initializeScreen();
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF00A32A),
+            ),
+            child: const Text('Login'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRewardCard(Map<String, dynamic> reward) {
+    final title = reward['title']?.toString() ?? 'Reward';
+    final badge = reward['badge']?.toString();
+    final description = reward['description']?.toString();
+    final imageUrl = reward['image_url']?.toString();
+    final cost = (reward['points_required'] as num?)?.toInt() ?? 0;
+    final canRedeem = _userPoints >= cost;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: AppNetworkImage(
+              imageUrl,
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+              errorWidget: _fallbackIcon(title),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    if (badge != null && badge.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF7EE),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          badge,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF007A2A),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (description != null && description.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                Text(
+                  '$cost Poin',
+                  style: const TextStyle(
+                    color: Color(0xFF00A32A),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 36,
+            child: ElevatedButton(
+              onPressed: canRedeem && !_isProcessingRedeem
+                  ? () => _handleRedeem(reward)
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00A32A),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              child: _isProcessingRedeem
+                  ? const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      canRedeem ? 'Tukar' : 'Kurang',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRedemptionCard(Map<String, dynamic> redemption) {
+    final title = redemption['reward_title']?.toString() ?? 'Reward';
+    final code = redemption['qr_code']?.toString() ?? '-';
+    final status = redemption['status']?.toString() ?? '-';
+    final redeemedAt = redemption['redeemed_at']?.toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FBF9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.receipt_long, color: Color(0xFF00A32A)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  code,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.6,
+                    color: Color(0xFF007A2A),
+                  ),
+                ),
+                if (redeemedAt != null)
+                  Text(
+                    _formatDate(redeemedAt),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF7EE),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              status,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF007A2A),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String value) {
+    try {
+      final date = DateTime.parse(value).toLocal();
+      String two(int n) => n.toString().padLeft(2, '0');
+      return '${two(date.day)}/${two(date.month)}/${date.year} '
+          '${two(date.hour)}:${two(date.minute)}';
+    } catch (_) {
+      return value;
+    }
+  }
+
   Widget _fallbackIcon(String title) {
     IconData icon = Icons.card_giftcard;
-    if (title.toLowerCase().contains('minuman')) {
+    final lower = title.toLowerCase();
+    if (lower.contains('minuman')) {
       icon = Icons.local_drink;
-    } else if (title.toLowerCase().contains('diskon') ||
-        title.toLowerCase().contains('%')) {
+    } else if (lower.contains('diskon') || lower.contains('%')) {
       icon = Icons.confirmation_number_outlined;
-    } else if (title.toLowerCase().contains('jam') ||
-        title.toLowerCase().contains('sewa')) {
+    } else if (lower.contains('jam') || lower.contains('sewa')) {
       icon = Icons.access_time_filled;
+    } else if (lower.contains('bola') || lower.contains('lapangan')) {
+      icon = Icons.sports_soccer;
     }
 
     return Container(
-      width: 50,
-      height: 50,
-      color: Colors.green.withOpacity(0.1),
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE6F5EA),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Icon(icon, color: const Color(0xFF00A32A)),
     );
   }

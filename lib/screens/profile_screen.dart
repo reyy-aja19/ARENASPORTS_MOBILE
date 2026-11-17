@@ -1,9 +1,10 @@
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../config/api_config.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../services/auth_api.dart';
+import '../services/session_service.dart';
 import '../widgets/app_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -15,65 +16,87 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? userData;
+  Map<String, dynamic>? _stats;
   bool _isLoading = true;
   bool _isGuest = true;
+  bool _isFetching = false;
 
   @override
   void initState() {
     super.initState();
+    SessionService.revision.addListener(_fetchUserProfile);
     _fetchUserProfile();
   }
 
+  @override
+  void dispose() {
+    SessionService.revision.removeListener(_fetchUserProfile);
+    super.dispose();
+  }
+
   Future<void> _fetchUserProfile() async {
+    if (_isFetching) return;
+    _isFetching = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      final storedUser = prefs.getString('user');
+      await _loadProfile();
+    } finally {
+      _isFetching = false;
+    }
+  }
 
-      if (token != null && token.isNotEmpty && storedUser != null) {
-        if (!mounted) return;
+  Future<void> _loadProfile() async {
+    if (!await SessionService.isLoggedIn()) {
+      if (!mounted) return;
+      setState(() {
+        userData = null;
+        _stats = null;
+        _isGuest = true;
+        _isLoading = false;
+      });
+      return;
+    }
 
-        setState(() {
-          userData = jsonDecode(storedUser);
-          _isGuest = false;
-          _isLoading = false;
-        });
-      } else if (mounted) {
-        setState(() {
-          userData = null;
-          _isGuest = true;
-          _isLoading = false;
-        });
-      }
+    final cached = await SessionService.currentUser();
+    if (!mounted) return;
+    setState(() {
+      if (cached != null) userData = cached;
+      _isGuest = false;
+    });
+
+    try {
+      final data = await ApiService.instance.profile();
+      if (!mounted) return;
+      setState(() {
+        userData = data['user'] is Map
+            ? Map<String, dynamic>.from(data['user'] as Map)
+            : cached;
+        _stats = data['stats'] is Map
+            ? Map<String, dynamic>.from(data['stats'] as Map)
+            : null;
+        _isLoading = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        _showSnackBar('Gagal memuat profil: $e', Colors.red);
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (e is ApiException && e.isUnauthorized) return;
+      _showSnackBar(
+        e is ApiException ? e.message : 'Gagal memuat profil: $e',
+        Colors.red,
+      );
     }
   }
 
   ImageProvider? _avatarImageProvider() {
-    final avatar = userData?['avatar'] ?? userData?['profile_photo_url'];
+    final avatar = userData?['profile_photo_url'] ?? userData?['avatar'];
     if (avatar == null || avatar.toString().isEmpty) return null;
 
-    final value = avatar.toString();
-    if (value.startsWith('http')) {
-      return NetworkImage(value);
-    }
-    if (value.startsWith('/')) {
-      return FileImage(File(value));
-    }
-    return null;
+    final resolved = ApiConfig.resolveMediaUrl(avatar);
+    if (resolved == null) return null;
+    return NetworkImage(resolved);
   }
 
-  void _handleLogout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('token');
-    await prefs.remove('auth_mode');
-    await prefs.remove('user_id');
-    await prefs.remove('user');
-    await prefs.remove('user_name');
+  Future<void> _handleLogout() async {
+    await AuthApi.logout();
 
     if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
@@ -231,9 +254,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildStatCard(
-                            title: 'Status',
-                            value: 'Aktif',
-                            icon: Icons.verified,
+                            title: 'Booking',
+                            value:
+                                '${(_stats?['booking_count'] as num?)?.toInt() ?? 0}',
+                            icon: Icons.event_available,
                           ),
                         ),
                       ],

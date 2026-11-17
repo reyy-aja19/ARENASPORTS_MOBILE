@@ -1,7 +1,11 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../services/match_api.dart';
+import '../services/session_service.dart';
+import '../widgets/app_network_image.dart';
 
 class ChatScreen extends StatefulWidget {
   final int matchId;
@@ -20,67 +24,70 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
-  List<dynamic> _messages = [];
+  final ImagePicker _picker = ImagePicker();
+
+  List<Map<String, dynamic>> _messages = [];
   bool _isLoading = true;
-  String _currentUserName = "";
-  Timer? _pollingTimer;
+  bool _isSending = false;
+  int? _currentUserId;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _fetchChatInitial();
-    // Jalankan polling: Ambil data chat baru setiap 3 detik secara berkala
+    // Ambil pesan baru setiap 3 detik tanpa memuat ulang seluruh daftar.
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       _fetchChatSilent();
     });
   }
 
+  Timer? _pollingTimer;
+
   @override
   void dispose() {
-    _pollingTimer?.cancel(); // Hentikan timer saat keluar dari halaman chat
+    _pollingTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  // Mengambil nama user yang login untuk membedakan chat kanan/kiri
   Future<void> _loadUserData() async {
-    final prefs = await SharedPreferences.getInstance();
-    // Pastikan key 'name' sesuai dengan nama key saat kamu simpan data login di shared_prefs
-    setState(() {
-      _currentUserName = prefs.getString('user_name') ?? prefs.getString('name') ?? "";
-    });
+    final id = await SessionService.userId();
+    if (!mounted) return;
+    setState(() => _currentUserId = id);
   }
 
-  // Load chat pertama kali dengan loading spinner
   Future<void> _fetchChatInitial() async {
     try {
       final data = await MatchApi.fetchMessages(widget.matchId);
+      if (!mounted) return;
       setState(() {
         _messages = data;
         _isLoading = false;
       });
       _scrollToBottom();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoading = false);
       _showSnackBar("Gagal memuat chat: $e", Colors.red);
     }
   }
 
-  // Ambil chat di latar belakang (tanpa memicu loading spinner agar tidak berkedip)
   Future<void> _fetchChatSilent() async {
+    if (_isLoading) return;
     try {
-      final data = await MatchApi.fetchMessages(widget.matchId);
-      if (data.length != _messages.length) {
-        setState(() {
-          _messages = data;
-        });
-        _scrollToBottom();
-      }
+      final lastId = _messages.isEmpty
+          ? 0
+          : (_messages.last['id'] as num?)?.toInt() ?? 0;
+      final data = await MatchApi.fetchMessages(widget.matchId, after: lastId);
+      if (!mounted || data.isEmpty) return;
+      setState(() {
+        _messages = [..._messages, ...data];
+      });
+      _scrollToBottom();
     } catch (e) {
-      print("Gagal sinkronisasi chat otomatis: $e");
+      debugPrint("Gagal sinkronisasi chat otomatis: $e");
     }
   }
 
@@ -96,17 +103,41 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _handleSend() async {
+  Future<void> _handleSend() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSending) return;
 
     _messageController.clear();
-
-    bool success = await MatchApi.sendMessage(widget.matchId, text);
+    setState(() => _isSending = true);
+    final success = await MatchApi.sendMessage(widget.matchId, text);
+    if (!mounted) return;
+    setState(() => _isSending = false);
     if (success) {
-      _fetchChatSilent(); // Refresh data chat langsung setelah berhasil kirim
+      await _fetchChatSilent();
     } else {
       _showSnackBar("Pesan gagal dikirim", Colors.red);
+    }
+  }
+
+  Future<void> _handleAttachment() async {
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _isSending = true);
+    final success = await MatchApi.sendMessage(
+      widget.matchId,
+      '',
+      attachmentPath: picked.path,
+    );
+    if (!mounted) return;
+    setState(() => _isSending = false);
+    if (success) {
+      await _fetchChatSilent();
+    } else {
+      _showSnackBar("Gambar gagal dikirim", Colors.red);
     }
   }
 
@@ -128,7 +159,11 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             Text(
               widget.matchTitle,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: Colors.black,
+              ),
             ),
             const Text(
               "Grup Koordinasi Match",
@@ -142,7 +177,9 @@ class _ChatScreenState extends State<ChatScreen> {
         centerTitle: true,
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00A32A)))
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF00A32A)),
+            )
           : Column(
               children: [
                 Expanded(
@@ -160,11 +197,23 @@ class _ChatScreenState extends State<ChatScreen> {
                           itemCount: _messages.length,
                           itemBuilder: (context, index) {
                             final chat = _messages[index];
-                            final String senderName = chat['user']?['name'] ?? 'Anonim';
-                            final String text = chat['message'] ?? '';
-                            final bool isMe = senderName.toLowerCase() == _currentUserName.toLowerCase();
+                            final senderId =
+                                (chat['user_id'] as num?)?.toInt() ?? 0;
+                            final senderName =
+                                chat['user_name']?.toString() ?? 'Anonim';
+                            final text = chat['message']?.toString() ?? '';
+                            final attachment =
+                                chat['attachment_url']?.toString();
+                            final isMe =
+                                _currentUserId != null &&
+                                senderId == _currentUserId;
 
-                            return _buildChatBubble(senderName, text, isMe);
+                            return _buildChatBubble(
+                              senderName,
+                              text,
+                              attachment,
+                              isMe,
+                            );
                           },
                         ),
                 ),
@@ -174,7 +223,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildChatBubble(String sender, String text, bool isMe) {
+  Widget _buildChatBubble(
+    String sender,
+    String text,
+    String? attachment,
+    bool isMe,
+  ) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -185,18 +239,20 @@ class _ChatScreenState extends State<ChatScreen> {
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(12),
             topRight: const Radius.circular(12),
-            bottomLeft: isMe ? const Radius.circular(12) : const Radius.circular(0),
-            bottomRight: isMe ? const Radius.circular(0) : const Radius.circular(12),
+            bottomLeft: isMe ? const Radius.circular(12) : Radius.zero,
+            bottomRight: isMe ? Radius.zero : const Radius.circular(12),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.02),
+              color: Colors.black.withValues(alpha: 0.02),
               blurRadius: 5,
               offset: const Offset(0, 2),
-            )
+            ),
           ],
         ),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -210,13 +266,26 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
             if (!isMe) const SizedBox(height: 3),
-            Text(
-              text,
-              style: TextStyle(
-                color: isMe ? Colors.white : Colors.black87,
-                fontSize: 14,
+            if (attachment != null && attachment.isNotEmpty) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: AppNetworkImage(
+                  attachment,
+                  width: 200,
+                  fit: BoxFit.cover,
+                  fallbackIcon: Icons.broken_image_outlined,
+                ),
               ),
-            ),
+              if (text.isNotEmpty) const SizedBox(height: 6),
+            ],
+            if (text.isNotEmpty)
+              Text(
+                text,
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black87,
+                  fontSize: 14,
+                ),
+              ),
           ],
         ),
       ),
@@ -230,6 +299,14 @@ class _ChatScreenState extends State<ChatScreen> {
       child: SafeArea(
         child: Row(
           children: [
+            IconButton(
+              onPressed: _isSending ? null : _handleAttachment,
+              icon: const Icon(
+                Icons.attach_file_rounded,
+                color: Color(0xFF00A32A),
+              ),
+              tooltip: 'Kirim gambar',
+            ),
             Expanded(
               child: TextField(
                 controller: _messageController,
@@ -242,9 +319,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   fillColor: const Color(0xFFF4F6F8),
                   filled: true,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                 ),
                 textCapitalization: TextCapitalization.sentences,
+                onSubmitted: (_) => _handleSend(),
               ),
             ),
             const SizedBox(width: 8),
@@ -252,10 +333,19 @@ class _ChatScreenState extends State<ChatScreen> {
               backgroundColor: const Color(0xFF00A32A),
               radius: 22,
               child: IconButton(
-                icon: const Icon(Icons.send, color: Colors.white, size: 18),
-                onPressed: _handleSend,
+                icon: _isSending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send, color: Colors.white, size: 18),
+                onPressed: _isSending ? null : _handleSend,
               ),
-            )
+            ),
           ],
         ),
       ),

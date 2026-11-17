@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-import 'package:penyewaan_lapangan/services/api_service.dart';
-import 'package:penyewaan_lapangan/screens/payment_screen.dart';
-import 'package:penyewaan_lapangan/services/midtrans_payment_service.dart';
+
+import '../services/api_client.dart';
+import '../services/api_service.dart';
 import '../services/push_notification_service.dart';
 import '../utils/auth_guard.dart';
 import '../widgets/top_banner.dart';
+import 'payment_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final int lapanganId;
   final String namaLapangan;
   final String tanggal;
   final String jam;
+  final String jamMulai;
+  final int durasiJam;
   final String harga;
 
   const CheckoutScreen({
@@ -21,6 +22,8 @@ class CheckoutScreen extends StatefulWidget {
     required this.namaLapangan,
     required this.tanggal,
     required this.jam,
+    required this.jamMulai,
+    required this.durasiJam,
     required this.harga,
   });
 
@@ -40,56 +43,36 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       .where((t) => t.isNotEmpty)
       .join('  •  ');
 
-  int get _durasiJam => widget.jam
-      .split(',')
-      .map((t) => t.trim())
-      .where((t) => t.isNotEmpty)
-      .length;
+  int get _durasiJam => widget.durasiJam;
 
   Future<void> _handlePayment() async {
     if (!await requireAuthenticatedUser(context) || !mounted) return;
     setState(() => _isLoading = true);
 
     try {
-      final apiService = ApiService();
-      final prefs = await SharedPreferences.getInstance();
+      final creation = await ApiService.instance.createBooking(
+        courtId: widget.lapanganId,
+        date: widget.tanggal,
+        startTime: widget.jamMulai,
+        hours: widget.durasiJam,
+        paymentMethod: paymentMethod,
+      );
+
       if (!mounted) return;
-      final userRaw = prefs.getString('user');
-      final currentUser = userRaw == null
-          ? <String, dynamic>{}
-          : Map<String, dynamic>.from(jsonDecode(userRaw));
-      final userId = currentUser['id'] as int? ?? 0;
-      final cleanPrice =
-          double.tryParse(widget.harga.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-      final listJam = widget.jam
-          .split(',')
-          .map((time) => time.trim())
-          .where((time) => time.isNotEmpty)
-          .toList();
+      final booking = creation.booking;
 
-      if (listJam.isEmpty) throw Exception('Jam tidak valid');
-
-      final jamMulai = listJam.first;
-      final jamTerakhir = listJam.last;
-      final hourEnd = int.parse(jamTerakhir.split(':').first);
-      final jamSelesai = '${(hourEnd + 1).toString().padLeft(2, '0')}:00';
-
-      if (paymentMethod == 'Midtrans') {
-        final transaction = await MidtransPaymentService().createTransaction(
-          amount: cleanPrice.round(),
-          itemName: widget.namaLapangan,
-          customerName: currentUser['name']?.toString() ?? 'Pelanggan',
-          customerEmail: currentUser['email']?.toString() ?? '',
-        );
+      if (paymentMethod == 'Midtrans' && creation.requiresPayment) {
+        final snap = await ApiService.instance.checkoutBooking(booking.id);
         if (!mounted) return;
 
-        final paymentResult = await Navigator.push<bool>(
+        final paid = await Navigator.push<bool>(
           context,
           MaterialPageRoute(
             builder: (_) => PaymentScreen(
-              paymentUrl: transaction.redirectUrl,
-              orderId: transaction.orderId,
-              totalPrice: cleanPrice,
+              paymentId: snap.paymentId,
+              paymentUrl: snap.redirectUrl,
+              orderId: snap.orderId,
+              totalPrice: booking.totalPrice.toDouble(),
               venueName: widget.namaLapangan,
               date: widget.tanggal,
               time: widget.jam,
@@ -97,31 +80,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
         );
 
-        if (paymentResult != true || !mounted) return;
-      }
-
-      final result = await apiService.postBooking(
-        userId: userId,
-        lapanganId: widget.lapanganId,
-        fieldName: widget.namaLapangan,
-        paymentMethod: paymentMethod,
-        date: widget.tanggal,
-        startTime: jamMulai,
-        endTime: jamSelesai,
-        totalPrice: cleanPrice,
-        hours: listJam.length,
-      );
-      if (!mounted) return;
-
-      if (result['status'] == true) {
-        if (paymentMethod == 'Midtrans') {
-          showTopBanner(
-            context,
-            title: 'Pembayaran Berhasil',
-            message:
-                '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
-            icon: Icons.check_circle_rounded,
-          );
+        if (!mounted) return;
+        if (paid == true) {
           PushNotificationService.showLocalNotification(
             title: 'Pembayaran Berhasil',
             body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
@@ -133,63 +93,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 venueName: widget.namaLapangan,
                 date: widget.tanggal,
                 time: widget.jam,
-                totalPrice: cleanPrice,
+                totalPrice: booking.totalPrice.toDouble(),
               ),
             ),
             (route) => false,
           );
-          return;
-        }
-
-        if (result['local_demo'] == true) {
-          showTopBanner(
-            context,
-            title: 'Booking Berhasil',
-            message:
-                '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
-            icon: Icons.check_circle_rounded,
-          );
-          PushNotificationService.showLocalNotification(
-            title: 'Booking Berhasil',
-            body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
-          );
+        } else {
           _showSnackBar(
-            '${result['message']} +${result['current_points']} poin.',
-            Colors.green,
+            'Booking dibuat. Selesaikan pembayaran Midtrans dari riwayat booking.',
+            Colors.orange,
           );
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/history',
-            (route) => route.isFirst,
-          );
-          return;
+          _goToHistory();
         }
+        return;
+      }
 
-        showTopBanner(
-          context,
-          title: 'Booking Berhasil',
-          message: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
-          icon: Icons.check_circle_rounded,
-        );
-        PushNotificationService.showLocalNotification(
-          title: 'Booking Berhasil',
-          body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
-        );
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/history',
-          (route) => route.isFirst,
-        );
-      } else {
-        _showSnackBar("Gagal: ${result['message']}", Colors.red);
-      }
+      final isCash = paymentMethod == 'Cash';
+      showTopBanner(
+        context,
+        title: isCash ? 'Booking Berhasil' : 'Booking Dibuat',
+        message: isCash
+            ? '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}\n'
+                  'Bayar di tempat saat datang ke venue.'
+            : '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+        icon: Icons.check_circle_rounded,
+      );
+      PushNotificationService.showLocalNotification(
+        title: isCash ? 'Booking Berhasil' : 'Booking Dibuat',
+        body: '${widget.namaLapangan} • ${widget.tanggal} • ${widget.jam}',
+      );
+      _goToHistory();
+    } on ApiException catch (e) {
+      if (mounted) _showSnackBar(e.message, Colors.red);
     } catch (e) {
-      if (mounted) {
-        _showSnackBar('Pembayaran atau booking gagal: $e', Colors.red);
-      }
+      if (mounted) _showSnackBar('Booking gagal: $e', Colors.red);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _goToHistory() {
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
   }
 
   void _showSnackBar(String message, Color color) {
@@ -340,7 +285,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "Transaksi aman dan terenkripsi. Pilih metode pembayaran yang kamu inginkan.",
+                      "Transaksi aman dan terenkripsi. Booking berstatus Menunggu "
+                      "sampai pembayaran dikonfirmasi admin venue.",
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade700,
@@ -547,7 +493,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            // Indikator pilihan (custom, tidak pakai Radio widget yang deprecated).
             Container(
               width: 22,
               height: 22,

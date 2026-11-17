@@ -1,7 +1,14 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
-import '../services/local_app_data_service.dart';
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../models/field_model.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../widgets/app_network_image.dart';
 import '../widgets/areno_logo.dart';
+import 'detail_screen.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -15,14 +22,27 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _isTyping = false;
+  bool _isLocating = false;
+  double? _latitude;
+  double? _longitude;
+
+  static const List<String> _quickCommands = [
+    'Info lapangan',
+    'Harga lapangan',
+    'Cara booking',
+    'Pembayaran',
+    'Poin dan reward',
+    'Open match',
+  ];
 
   @override
   void initState() {
     super.initState();
     _addBotMessage(
-      'Halo! Mau main olahraga apa hari ini? ⚽🏸 '
-      'Areno siap bantu cari lapangan, cek jadwal, atau bantuan booking.',
+      'Halo! Saya Arena Assistant. Saya bisa membantu info lapangan, harga, '
+      'fasilitas, jadwal, booking, pembayaran, poin, dan open match.',
     );
+    _detectLocation(silent: true);
   }
 
   @override
@@ -32,8 +52,18 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     super.dispose();
   }
 
-  void _addBotMessage(String text) {
-    _messages.add(ChatMessage(text: text, isUser: false, time: DateTime.now()));
+  void _addBotMessage(
+    String text, {
+    List<Map<String, dynamic>> courts = const [],
+  }) {
+    _messages.add(
+      ChatMessage(
+        text: text,
+        isUser: false,
+        time: DateTime.now(),
+        courts: courts,
+      ),
+    );
   }
 
   void _addUserMessage(String text) {
@@ -51,21 +81,126 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     }
   }
 
+  Future<void> _detectLocation({bool silent = false}) async {
+    if (_isLocating) return;
+    setState(() => _isLocating = true);
+
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!silent && mounted) {
+          _showSnackBar(
+            'Aktifkan layanan lokasi untuk mencari venue terdekat.',
+          );
+        }
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied && !silent) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!silent && mounted) {
+          _showSnackBar('Izin lokasi tidak diberikan.');
+        }
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      ).timeout(const Duration(seconds: 15));
+
+      if (!mounted) return;
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+      });
+      if (!silent) {
+        _showSnackBar(
+          'Lokasi aktif. Venue terdekat akan dipertimbangkan.',
+          const Color(0xFF00A32A),
+        );
+      }
+    } on TimeoutException {
+      if (!silent && mounted) _showSnackBar('Waktu mendapatkan lokasi habis.');
+    } catch (_) {
+      if (!silent && mounted) {
+        _showSnackBar('Lokasi tidak dapat diambil. Coba lagi.');
+      }
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
   Future<void> _sendMessage(String text) async {
-    if (text.trim().isEmpty || _isTyping) return;
-    _addUserMessage(text);
+    final message = text.trim();
+    if (message.isEmpty || _isTyping) return;
+
+    _addUserMessage(message);
     _inputController.clear();
     setState(() => _isTyping = true);
     await _scrollToBottom();
 
-    final response = _generateResponse(text);
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    setState(() {
-      _addBotMessage(response);
-      _isTyping = false;
-    });
+    try {
+      final data = await ApiService.instance.chatbot(
+        message,
+        latitude: _latitude,
+        longitude: _longitude,
+      );
+
+      final reply = data['reply']?.toString().trim();
+      final courts = (data['courts'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _addBotMessage(
+          reply == null || reply.isEmpty
+              ? 'Maaf, saya belum memahami pertanyaan itu.'
+              : reply,
+          courts: courts,
+        );
+        _isTyping = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _addBotMessage(
+          e is ApiException
+              ? e.message
+              : 'Maaf, asisten sedang tidak dapat dihubungi. Coba lagi nanti.',
+        );
+        _isTyping = false;
+      });
+    }
     await _scrollToBottom();
+  }
+
+  void _openVenue(Map<String, dynamic> court) {
+    final venueId = (court['venue_id'] as num?)?.toInt();
+    if (venueId == null) {
+      _showSnackBar('Detail venue tidak tersedia untuk lapangan ini.');
+      return;
+    }
+
+    final field = FieldModel(
+      id: venueId,
+      name: court['venue_name']?.toString() ?? 'Venue ArenaSports',
+      type: court['type']?.toString() ?? 'Umum',
+      price: (court['price'] as num?)?.toInt() ?? 0,
+      imageUrl: court['image_url']?.toString(),
+      address: court['venue_address']?.toString(),
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
+    );
   }
 
   String _formatPrice(int price) {
@@ -75,274 +210,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
-  // ---------------- AI response logic (rule-based) ----------------
-
-  String _generateResponse(String text) {
-    final q = text.toLowerCase().trim();
-
-    // Greeting
-    if (_isGreeting(q)) {
-      return 'Halo! Mau main olahraga apa hari ini? ⚽🏸 '
-          'Areno siap bantu cari lapangan, cek jadwal, atau bantuan booking.';
-    }
-
-    // Help / capabilities
-    if (q.contains('bantu') ||
-        q.contains('help') ||
-        q.contains('apa aja') ||
-        q.contains('bisa apa')) {
-      return _helpResponse();
-    }
-
-    // List all fields
-    if (q.contains('lapangan') || q.contains('venue') || q.contains('cari')) {
-      return _fieldsResponse(q);
-    }
-
-    // Price / tarif
-    if (q.contains('harga') ||
-        q.contains('tarif') ||
-        q.contains('biaya') ||
-        q.contains('price')) {
-      return _priceResponse();
-    }
-
-    // Facilities
-    if (q.contains('fasilitas') ||
-        q.contains('fasilit') ||
-        q.contains('ac') ||
-        q.contains('parkir') ||
-        q.contains('kantin')) {
-      return _facilitiesResponse();
-    }
-
-    // Schedule / availability
-    if (q.contains('jadwal') ||
-        q.contains('tersedia') ||
-        q.contains('kosong') ||
-        q.contains('available') ||
-        q.contains('waktu')) {
-      return _scheduleResponse();
-    }
-
-    // Booking process
-    if (q.contains('booking') ||
-        q.contains('pesan') ||
-        q.contains('order') ||
-        q.contains('daftar') ||
-        q.contains('cara')) {
-      return _bookingResponse();
-    }
-
-    // Payment
-    if (q.contains('bayar') ||
-        q.contains('pembayaran') ||
-        q.contains('qris') ||
-        q.contains('transfer') ||
-        q.contains('e-wallet') ||
-        q.contains('dompet')) {
-      return _paymentResponse();
-    }
-
-    // Cancellation / refund
-    if (q.contains('batal') ||
-        q.contains('refund') ||
-        q.contains('kembali') ||
-        q.contains('cancel')) {
-      return _cancellationResponse();
-    }
-
-    // Location / address
-    if (q.contains('lokasi') ||
-        q.contains('alamat') ||
-        q.contains('dimana') ||
-        q.contains('mana')) {
-      return _locationResponse();
-    }
-
-    // Escalation / CS
-    if (q.contains('admin') ||
-        q.contains('cs') ||
-        q.contains('customer') ||
-        q.contains('keluhan') ||
-        q.contains('masalah') ||
-        q.contains('error') ||
-        q.contains('stuck')) {
-      return _escalationResponse();
-    }
-
-    // Thank you
-    if (q.contains('terima') || q.contains('thanks') || q.contains('makasih')) {
-      return 'Sama-sama! Mau main lagi kapan? Areno siap bantu kapan saja. ⚽🏸';
-    }
-
-    // Default / out of scope
-    return 'Maaf, Areno belum paham pertanyaan itu. '
-        'Areno bisa bantu soal cari lapangan, cek jadwal, cara booking, pembayaran, atau pembatalan di ArenaSports. '
-        'Ada yang bisa Areno bantu?';
-  }
-
-  bool _isGreeting(String q) {
-    final greetings = [
-      'halo',
-      'hai',
-      'hi',
-      'selamat pagi',
-      'selamat siang',
-      'selamat sore',
-      'selamat malam',
-      'areno',
-      'assalamualaikum',
-    ];
-    return greetings.any((g) => q.contains(g)) && q.length < 40;
-  }
-
-  String _helpResponse() {
-    return '''Areno bisa bantu kamu di sini:
-• Cari lapangan futsal & badminton
-• Cek harga dan fasilitas lapangan
-• Cek ketersediaan jadwal
-• Panduan booking lapangan
-• Info pembayaran (QRIS, E-Wallet, Transfer)
-• Info pembatalan booking
-
-Ketik misalnya: "cari lapangan futsal" atau "booking gimana?". Mau coba apa dulu?''';
-  }
-
-  String _fieldsResponse(String q) {
-    final fields = LocalAppDataService.fields;
-    String typeFilter = '';
-    if (q.contains('futsal')) typeFilter = 'Futsal';
-    if (q.contains('badminton')) typeFilter = 'Badminton';
-
-    final filtered = typeFilter.isEmpty
-        ? fields
-        : fields
-              .where((f) => f.type.toLowerCase() == typeFilter.toLowerCase())
-              .toList();
-
-    if (filtered.isEmpty) {
-      return 'Maaf, belum ada lapangan ${typeFilter.isEmpty ? '' : typeFilter} di daftar Areno.';
-    }
-
-    final buffer = StringBuffer();
-    buffer.write(
-      'Ini daftar lapangan ${typeFilter.isEmpty ? '' : typeFilter}:\n\n',
+  void _showSnackBar(String message, [Color color = Colors.red]) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
-    for (final f in filtered) {
-      buffer.write('• ${f.name} (${f.type})\n');
-      buffer.write('  Rp ${_formatPrice(f.price)} / jam\n');
-      if (f.fasilitas is List) {
-        final fas = List<String>.from(f.fasilitas);
-        buffer.write('  Fasilitas: ${fas.take(3).join(', ')}\n');
-      }
-      buffer.write('\n');
-    }
-    buffer.write(
-      'Mau Areno amankan jadwal lapangan mana? Sebutkan nama lapangannya ya.',
-    );
-    return buffer.toString();
-  }
-
-  String _priceResponse() {
-    final fields = LocalAppDataService.fields;
-    final buffer = StringBuffer();
-    buffer.write('Daftar harga sewa lapangan per jam:\n\n');
-    for (final f in fields) {
-      buffer.write('• ${f.name} (${f.type}): Rp ${_formatPrice(f.price)}\n');
-    }
-    buffer.write(
-      '\nHarga bisa berbeda tiap cabang. Mau booking lapangan mana?',
-    );
-    return buffer.toString();
-  }
-
-  String _facilitiesResponse() {
-    final fields = LocalAppDataService.fields;
-    final buffer = StringBuffer();
-    buffer.write('Fasilitas lapangan di ArenaSports:\n\n');
-    for (final f in fields) {
-      buffer.write('• ${f.name} (${f.type}): ');
-      if (f.fasilitas is List) {
-        buffer.write(List<String>.from(f.fasilitas).join(', '));
-      } else {
-        buffer.write('Tidak tersedia');
-      }
-      buffer.write('\n');
-    }
-    buffer.write('\nLapangan mana yang kamu inginkan?');
-    return buffer.toString();
-  }
-
-  String _scheduleResponse() {
-    return '''Areno bisa bantu cek ketersediaan jadwal.
-
-Kamu perlu sebutkan:
-• Nama lapangan
-• Tanggal main
-• Jam yang diinginkan
-
-Contoh: "Cek jadwal Kelapa Gading futsal besok jam 19.00".
-
-Kalo udah tahu jadwalnya, Areno bisa bantu langkah booking-nya. Mau coba?''';
-  }
-
-  String _bookingResponse() {
-    return '''Panduan booking lapangan di ArenaSports:
-
-1. Pilih lapangan di halaman Home.
-2. Pilih tanggal dan jam main (maksimal 2 jam).
-3. Klik "Konfirmasi" untuk lanjut ke pembayaran.
-4. Pilih metode: Midtrans (QRIS, E-Wallet, Transfer) atau Bayar di Tempat.
-5. Selesai! Booking akan masuk ke riwayat.
-
-Mau Areno bantu cari lapangan dulu? Sebutkan jenis olahraganya.''';
-  }
-
-  String _paymentResponse() {
-    return '''Opsi pembayaran di ArenaSports:
-
-• Midtrans – QRIS, E-Wallet (GoPay, OVO, Dana, dll), Transfer Bank
-• Bayar di Tempat – bayar langsung saat datang ke venue
-
-Pembayaran via Midtrans akan diverifikasi otomatis.
-Kalo ada kendala teknis pembayaran, Areno bisa arahkan ke Customer Service.
-
-Mau booking sekarang?''';
-  }
-
-  String _cancellationResponse() {
-    return '''Pembatalan booking di ArenaSports:
-
-• Buka riwayat booking di menu "Booking".
-• Pilih booking yang ingin dibatalkan.
-• Klik tombol batal (jika masih bisa).
-
-Kalo booking sudah lunas atau waktu mainnya dekat, silakan hubungi Customer Service untuk dibantu manual.
-
-Butuh bantuan pembatalan booking tertentu? Sebutkan detailnya ya.''';
-  }
-
-  String _locationResponse() {
-    final fields = LocalAppDataService.fields;
-    final buffer = StringBuffer();
-    buffer.write('Lokasi venue ArenaSports:\n\n');
-    for (final f in fields) {
-      buffer.write('• ${f.name}\n');
-      buffer.write(
-        '  Koordinat: ${f.latitude?.toStringAsFixed(4)}, ${f.longitude?.toStringAsFixed(4)}\n\n',
-      );
-    }
-    buffer.write('Venue mana yang kamu pilih?');
-    return buffer.toString();
-  }
-
-  String _escalationResponse() {
-    return '''Kalo ada kendala teknis pembayaran atau masalah di lokasi yang butuh tindakan admin, silakan hubungi Customer Service resmi ArenaSports.
-
-Areno tidak bisa menangani kasus yang butuh intervensi manusia langsung.
-
-Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
   }
 
   @override
@@ -363,6 +238,26 @@ Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: _latitude == null ? 'Aktifkan lokasi' : 'Perbarui lokasi',
+            onPressed: _isLocating ? null : () => _detectLocation(),
+            icon: _isLocating
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Icon(
+                    _latitude == null
+                        ? Icons.location_off_outlined
+                        : Icons.location_on,
+                  ),
+          ),
+        ],
         backgroundColor: const Color(0xFF00A32A),
         foregroundColor: Colors.white,
         elevation: 0,
@@ -393,21 +288,137 @@ Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
   Widget _buildMessageBubble(ChatMessage msg) {
     return Align(
       alignment: msg.isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: msg.isUser
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.78,
+            ),
+            decoration: BoxDecoration(
+              color: msg.isUser
+                  ? const Color(0xFF00A32A)
+                  : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              msg.text,
+              style: TextStyle(
+                color: msg.isUser ? Colors.white : Colors.black87,
+                height: 1.35,
+              ),
+            ),
+          ),
+          if (msg.courts.isNotEmpty)
+            SizedBox(
+              height: 128,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.only(bottom: 8, right: 8),
+                itemCount: msg.courts.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (context, index) =>
+                    _buildCourtCard(msg.courts[index]),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCourtCard(Map<String, dynamic> court) {
+    final name = court['name']?.toString() ?? 'Lapangan';
+    final venueName = court['venue_name']?.toString();
+    final type = court['type']?.toString() ?? 'Umum';
+    final price = (court['price'] as num?)?.toInt() ?? 0;
+    final distance = (court['distance_km'] as num?)?.toDouble();
+    final image = court['image_url']?.toString();
+
+    return InkWell(
+      onTap: () => _openVenue(court),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
+        width: 210,
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: msg.isUser ? const Color(0xFF00A32A) : Colors.grey.shade200,
-          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey.shade300),
         ),
-        child: Text(
-          msg.text,
-          style: TextStyle(color: msg.isUser ? Colors.white : Colors.black87),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: AppNetworkImage(
+                image,
+                width: 52,
+                height: 52,
+                fit: BoxFit.cover,
+                errorWidget: _courtPlaceholder(),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (venueName != null && venueName.isNotEmpty)
+                    Text(
+                      venueName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  Text(type, style: const TextStyle(fontSize: 11)),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Rp ${_formatPrice(price)}/jam',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF00A32A),
+                    ),
+                  ),
+                  if (distance != null)
+                    Text(
+                      '${distance.toStringAsFixed(1)} km',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _courtPlaceholder() {
+    return Container(
+      width: 52,
+      height: 52,
+      color: const Color(0xFFE6F5EA),
+      child: const Icon(Icons.sports_soccer, color: Color(0xFF00A32A)),
     );
   }
 
@@ -448,27 +459,19 @@ Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
   }
 
   Widget _buildRecommendedCommands() {
-    final commands = [
-      {'label': 'Cari lapangan futsal', 'text': 'cari lapangan futsal'},
-      {'label': 'Cari lapangan badminton', 'text': 'cari lapangan badminton'},
-      {'label': 'Harga lapangan', 'text': 'harga lapangan'},
-      {'label': 'Cara booking', 'text': 'cara booking'},
-      {'label': 'Pembayaran', 'text': 'pembayaran'},
-      {'label': 'Pembatalan', 'text': 'pembatalan'},
-    ];
     return SizedBox(
-      height: 90,
+      height: 54,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        itemCount: commands.length,
+        itemCount: _quickCommands.length,
         itemBuilder: (context, i) {
-          final cmd = commands[i];
+          final command = _quickCommands[i];
           return Padding(
             padding: const EdgeInsets.only(right: 8),
             child: ActionChip(
               label: Text(
-                cmd['label']!,
+                command,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -480,7 +483,7 @@ Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
                 color: Color(0xFF00A32A),
               ),
               backgroundColor: Colors.grey.shade100,
-              onPressed: () => _sendMessage(cmd['text']!),
+              onPressed: () => _sendMessage(command),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
                 side: BorderSide(color: Colors.grey.shade300),
@@ -521,13 +524,15 @@ Ada yang lain yang bisa Areno bantu soal booking atau jadwal lapangan?''';
             ),
             const SizedBox(width: 8),
             Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF00A32A),
+              decoration: const BoxDecoration(
+                color: Color(0xFF00A32A),
                 shape: BoxShape.circle,
               ),
               child: IconButton(
                 icon: const Icon(Icons.send, color: Colors.white),
-                onPressed: () => _sendMessage(_inputController.text),
+                onPressed: _isTyping
+                    ? null
+                    : () => _sendMessage(_inputController.text),
               ),
             ),
           ],
@@ -541,6 +546,12 @@ class ChatMessage {
   final String text;
   final bool isUser;
   final DateTime time;
+  final List<Map<String, dynamic>> courts;
 
-  ChatMessage({required this.text, required this.isUser, required this.time});
+  ChatMessage({
+    required this.text,
+    required this.isUser,
+    required this.time,
+    this.courts = const [],
+  });
 }

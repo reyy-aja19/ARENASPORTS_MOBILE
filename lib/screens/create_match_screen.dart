@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../models/match_model.dart';
+
+import '../models/booking_model.dart';
+import '../services/api_client.dart';
 import '../services/match_api.dart';
-import '../services/local_app_data_service.dart';
 import '../widgets/app_dialog.dart';
 
 class CreateMatchScreen extends StatefulWidget {
-  // Menerima data booking dari HistoryScreen
-  final dynamic bookingData;
+  final BookingModel? booking;
 
-  const CreateMatchScreen({super.key, this.bookingData});
+  const CreateMatchScreen({super.key, this.booking});
 
   @override
   State<CreateMatchScreen> createState() => _CreateMatchScreenState();
@@ -18,141 +17,55 @@ class CreateMatchScreen extends StatefulWidget {
 class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
-  final _jmlPemainController = TextEditingController();
+  final _jmlPemainController = TextEditingController(text: '10');
   final _descController = TextEditingController();
 
-  String _selectedJenis = 'Futsal';
-  String _bookingDateString = '';
-  String _startTimeString = '';
-  String _endTimeString = '';
-  int _bookingId = 0;
-  int _fieldId = 0;
-  String _venueName = 'Lapangan tidak diketahui';
+  BookingModel? _selectedBooking;
+  List<BookingModel> _eligibleBookings = const [];
+  bool _isLoadingBookings = false;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-
-    // Validasi & Ekstraksi Data dari JSON Laravel Booking
-    if (widget.bookingData != null) {
-      // 1. Ambil ID Booking Asli (Penting untuk mencocokkan relasi di API Match)
-      _bookingId = widget.bookingData['id'] ?? 0;
-
-      // 2. Ambil nama lapangan dan field booking agar event dapat diketahui
-      final lapanganData = widget.bookingData['lapangan'];
-      String rawVenue = '';
-
-      if (lapanganData is Map) {
-        rawVenue =
-            (lapanganData['nama_venue'] ??
-                    lapanganData['venue_name'] ??
-                    lapanganData['nama'] ??
-                    lapanganData['nama_lapangan'] ??
-                    lapanganData['name'] ??
-                    '')
-                .toString()
-                .trim();
-      }
-      if (rawVenue.isEmpty) {
-        rawVenue =
-            (widget.bookingData['venue_name'] ??
-                    widget.bookingData['lapangan_nama'] ??
-                    widget.bookingData['field_name'] ??
-                    '')
-                .toString()
-                .trim();
-      }
-
-      _venueName = rawVenue.isEmpty ? 'Lapangan tidak diketahui' : rawVenue;
-      _fieldId =
-          int.tryParse(widget.bookingData['lapangan_id']?.toString() ?? '') ??
-          (lapanganData is Map
-              ? int.tryParse(lapanganData['id']?.toString() ?? '') ?? 0
-              : 0);
-
-      String namaLapangan = _venueName.toLowerCase();
-
-      // 3. Deteksi Pintar Jenis Olahraga Berdasarkan Nama Lapangan
-      if (namaLapangan.contains('futsal') || namaLapangan.contains('bola')) {
-        _selectedJenis = 'Futsal';
-      } else if (namaLapangan.contains('badminton') ||
-          namaLapangan.contains('bulutangkis') ||
-          namaLapangan.contains('badmin')) {
-        _selectedJenis = 'Badminton';
-      } else if (namaLapangan.contains('basket') ||
-          namaLapangan.contains('basketball')) {
-        _selectedJenis = 'Basket';
-      } else if (namaLapangan.contains('voli') ||
-          namaLapangan.contains('volleyball')) {
-        _selectedJenis = 'Voli';
-      } else if (namaLapangan.contains('tenis') ||
-          namaLapangan.contains('tennis')) {
-        _selectedJenis = 'Tenis';
-      } else {
-        // Jika tidak ketemu kata kunci, ambil dari database field 'jenis' jika ada
-        String fallbackJenis = "";
-        if (lapanganData != null) {
-          fallbackJenis =
-              lapanganData['jenis'] ?? widget.bookingData['jenis'] ?? 'Futsal';
-        } else {
-          fallbackJenis = widget.bookingData['jenis'] ?? 'Futsal';
-        }
-
-        _selectedJenis = fallbackJenis.isNotEmpty
-            ? '${fallbackJenis[0].toUpperCase()}${fallbackJenis.substring(1).toLowerCase()}'
-            : 'Futsal';
-      }
-
-      // 4. Parsing Tanggal Main (Mengamankan format YYYY-MM-DD)
-      String rawDate =
-          widget.bookingData['booking_date'] ??
-          widget.bookingData['tanggal'] ??
-          '';
-      _bookingDateString = rawDate.length >= 10
-          ? rawDate.substring(0, 10)
-          : rawDate;
-
-      // 5. Parsing Jam Mulai dan Selesai (Menghilangkan format detik jika ada)
-      String rawStart =
-          widget.bookingData['start_time'] ??
-          widget.bookingData['waktu_mulai'] ??
-          '';
-      String rawEnd =
-          widget.bookingData['end_time'] ??
-          widget.bookingData['waktu_selesai'] ??
-          '';
-
-      _startTimeString = rawStart.length >= 5
-          ? rawStart.substring(0, 5)
-          : rawStart;
-      _endTimeString = rawEnd.length >= 5 ? rawEnd.substring(0, 5) : rawEnd;
-    } else {
-      // Data Fallback jika data kosong
-      _bookingDateString = "${DateTime.now().toLocal()}".split(' ')[0];
-      _startTimeString = '08:00';
-      _endTimeString = '09:00';
+    _selectedBooking = widget.booking;
+    if (_selectedBooking == null) {
+      _loadEligibleBookings();
     }
   }
 
-  // Menentukan icon input secara dinamis sesuai olahraga yang terdeteksi
-  IconData _getSportIcon(String jenis) {
-    switch (jenis.toLowerCase()) {
-      case 'futsal':
-        return Icons.sports_soccer;
-      case 'badminton':
-        return Icons.sports_tennis;
-      case 'basket':
-        return Icons.sports_basketball;
-      case 'voli':
-        return Icons.sports_volleyball;
-      case 'tenis':
-        return Icons.sports_mma;
-      default:
-        return Icons.sports_handball;
+  Future<void> _loadEligibleBookings() async {
+    setState(() {
+      _isLoadingBookings = true;
+      _loadError = null;
+    });
+    try {
+      final bookings = await MatchApi.fetchEligibleBookings();
+      if (!mounted) return;
+      setState(() {
+        _eligibleBookings = bookings;
+        _selectedBooking = bookings.isNotEmpty ? bookings.first : null;
+        _isLoadingBookings = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingBookings = false;
+        _loadError = e.message;
+      });
     }
   }
 
-  // Desain Input Field dekorasi bergaya Clean
+  IconData _sportIcon(String type) {
+    final value = type.toLowerCase();
+    if (value.contains('badminton') || value.contains('tenis')) {
+      return Icons.sports_tennis;
+    }
+    if (value.contains('basket')) return Icons.sports_basketball;
+    if (value.contains('voli')) return Icons.sports_volleyball;
+    return Icons.sports_soccer;
+  }
+
   InputDecoration _inputDecoration(
     String label,
     IconData icon, {
@@ -172,78 +85,67 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     ),
   );
 
-  void _submitData() async {
-    if (_formKey.currentState!.validate()) {
-      if (_bookingId == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Error: ID Booking tidak terbaca dari riwayat."),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+  Future<void> _submitData() async {
+    if (!_formKey.currentState!.validate()) return;
+    final booking = _selectedBooking;
+    if (booking == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pilih booking yang akan dijadikan Open Match.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-      // Membungkus data ke dalam Model Match untuk dikirim ke API Laravel
-      final newMatch = MatchModel(
-        id: _bookingId, // Mengirimkan ID booking asli ke server
-        title: _titleController.text,
-        jenis: _selectedJenis,
-        tanggal: _bookingDateString,
-        startTime: _startTimeString,
-        endTime: _endTimeString,
-        jumlahPemain: int.parse(_jmlPemainController.text),
-        jumlahBergabung: 1,
-        status: 'Open',
-        deskripsi: _descController.text,
-        fieldId: _fieldId,
-        fieldName: _venueName,
+    showAppLoadingDialog(context, message: 'Membuat open match...');
+
+    try {
+      await MatchApi.createMatch(
+        bookingId: booking.id,
+        title: _titleController.text.trim(),
+        jumlahPemain: int.parse(_jmlPemainController.text.trim()),
+        deskripsi: _descController.text.trim(),
       );
 
-      // Tampilkan indikator loading sederhana saat memproses jaringan
-      showAppLoadingDialog(context, message: 'Membuat open match...');
-
-      final newMatchId = await MatchApi.createMatch(newMatch);
-
-      if (mounted) Navigator.pop(context); // Tutup loading dialog
-
-      if (newMatchId > 0) {
-        final prefs = await SharedPreferences.getInstance();
-        final userId = prefs.getInt('user_id') ?? 0;
-        await LocalAppDataService.markMatchCreatedByUser(
-          userId,
-          newMatchId,
-          bookingId: _bookingId,
-        );
-        MatchApi.bumpData();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Match Berhasil Dibuat!"),
-              backgroundColor: Colors.green,
-            ),
-          );
-          Navigator.pop(context, true); // Kembali ke halaman riwayat sewa
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Gagal membuat match. Server menolak permintaan atau status belum Lunas.",
-              ),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-      }
+      if (!mounted) return;
+      Navigator.pop(context); // tutup loading
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Match Berhasil Dibuat!"),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context, true);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal membuat match: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final booking = _selectedBooking;
+    final jenis = booking?.court?.type ?? 'Futsal';
+    final date = booking?.bookingDate ?? '-';
+    final start = booking?.startTime ?? '-';
+    final end = booking?.endTime ?? '-';
+    final venue = booking == null
+        ? 'Pilih booking terlebih dahulu'
+        : '${booking.venueName} • ${booking.courtName}';
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -255,155 +157,221 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Detail Pertandingan (Otomatis Terisi)",
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Input Judul Match
-              TextFormField(
-                controller: _titleController,
-                decoration: _inputDecoration("Judul Match", Icons.title),
-                validator: (v) =>
-                    v!.isEmpty ? "Isi judul match terlebih dahulu" : null,
-              ),
-              const SizedBox(height: 15),
-
-              // Lapangan dari booking
-              TextFormField(
-                initialValue: _venueName,
-                readOnly: true,
-                decoration: _inputDecoration(
-                  "Lapangan",
-                  Icons.stadium_outlined,
-                  enabled: false,
-                ),
-              ),
-              const SizedBox(height: 15),
-
-              // Input Jenis Olahraga (ReadOnly & Mengikuti Deteksi Berhasil)
-              TextFormField(
-                key: Key("jenis_$_selectedJenis"),
-                initialValue: _selectedJenis,
-                readOnly: true,
-                decoration: _inputDecoration(
-                  "Jenis Olahraga",
-                  _getSportIcon(_selectedJenis),
-                  enabled: false,
-                ),
-              ),
-              const SizedBox(height: 15),
-
-              // Input Kebutuhan Jumlah Pemain
-              TextFormField(
-                controller: _jmlPemainController,
-                keyboardType: TextInputType.number,
-                decoration: _inputDecoration(
-                  "Maksimal Pemain (Kebutuhan)",
-                  Icons.groups,
-                ),
-                validator: (v) {
-                  if (v!.isEmpty) return "Isi jumlah kebutuhan pemain";
-                  if (int.tryParse(v) == null || int.parse(v) <= 0) {
-                    return "Masukkan angka yang valid";
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 15),
-
-              // Input Catatan / Deskripsi Tambahan
-              TextFormField(
-                controller: _descController,
-                maxLines: 3,
-                decoration: _inputDecoration(
-                  "Deskripsi Tambahan / Catatan",
-                  Icons.description,
-                ),
-              ),
-              const SizedBox(height: 15),
-
-              // Input Tanggal Pengambilan otomatis
-              TextFormField(
-                key: Key("tanggal_$_bookingDateString"),
-                initialValue: "Tanggal Main: $_bookingDateString",
-                readOnly: true,
-                decoration: _inputDecoration(
-                  "Tanggal",
-                  Icons.calendar_today,
-                  enabled: false,
-                ),
-              ),
-              const SizedBox(height: 15),
-
-              // Baris Rentang Waktu Mulai & Selesai
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      key: Key("start_$_startTimeString"),
-                      initialValue: _startTimeString,
+      body: (_isLoadingBookings && widget.booking == null)
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF00A32A)),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(20.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            "Detail Pertandingan",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Muat ulang booking',
+                          onPressed: widget.booking == null
+                              ? _loadEligibleBookings
+                              : null,
+                          icon: const Icon(
+                            Icons.refresh,
+                            color: Color(0xFF00A32A),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (widget.booking == null) ...[
+                      const SizedBox(height: 10),
+                      if (_loadError != null)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_loadError!),
+                            TextButton.icon(
+                              onPressed: _loadEligibleBookings,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Coba Lagi'),
+                            ),
+                          ],
+                        )
+                      else if (_eligibleBookings.isEmpty)
+                        const Text(
+                          'Tidak ada booking aktif yang bisa dijadikan Open Match. '
+                          'Pastikan booking sudah DP/Lunas dan belum dimulai.',
+                        )
+                      else
+                        DropdownButtonFormField<BookingModel>(
+                          initialValue: _selectedBooking,
+                          decoration: _inputDecoration(
+                            "Pilih Booking",
+                            Icons.event_available_outlined,
+                          ),
+                          items: _eligibleBookings
+                              .map(
+                                (item) => DropdownMenuItem(
+                                  value: item,
+                                  child: Text(
+                                    '${item.courtName} • ${item.bookingDate} '
+                                    '${item.startTime}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedBooking = value;
+                            });
+                          },
+                          validator: (value) => value == null
+                              ? 'Pilih booking terlebih dahulu'
+                              : null,
+                        ),
+                      const SizedBox(height: 15),
+                    ],
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: _inputDecoration("Judul Match", Icons.title),
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? "Isi judul match terlebih dahulu"
+                          : null,
+                    ),
+                    const SizedBox(height: 15),
+                    TextFormField(
+                      key: ValueKey(venue),
+                      initialValue: venue,
                       readOnly: true,
                       decoration: _inputDecoration(
-                        "Mulai",
-                        Icons.access_time,
+                        "Lapangan",
+                        Icons.stadium_outlined,
                         enabled: false,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: TextFormField(
-                      key: Key("end_$_endTimeString"),
-                      initialValue: _endTimeString,
+                    const SizedBox(height: 15),
+                    TextFormField(
+                      key: ValueKey(jenis),
+                      initialValue: jenis,
                       readOnly: true,
                       decoration: _inputDecoration(
-                        "Selesai",
-                        Icons.access_time,
+                        "Jenis Olahraga",
+                        _sportIcon(jenis),
                         enabled: false,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
-
-              // Tombol Eksekusi Kirim Data ke API
-              SizedBox(
-                width: double.infinity,
-                height: 55,
-                child: ElevatedButton(
-                  onPressed: _submitData,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 15),
+                    TextFormField(
+                      controller: _jmlPemainController,
+                      keyboardType: TextInputType.number,
+                      decoration: _inputDecoration(
+                        "Maksimal Pemain (2-99)",
+                        Icons.groups,
+                      ),
+                      validator: (v) {
+                        final value = int.tryParse(v?.trim() ?? '');
+                        if (value == null) return "Masukkan angka yang valid";
+                        if (value < 2 || value > 99) {
+                          return "Jumlah pemain harus 2 sampai 99";
+                        }
+                        return null;
+                      },
                     ),
-                    elevation: 3,
-                  ),
-                  child: const Text(
-                    "SIMPAN MATCH",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
+                    const SizedBox(height: 15),
+                    TextFormField(
+                      controller: _descController,
+                      maxLines: 3,
+                      decoration: _inputDecoration(
+                        "Deskripsi Tambahan / Catatan",
+                        Icons.description,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    TextFormField(
+                      key: ValueKey('tanggal_$date'),
+                      initialValue: "Tanggal Main: $date",
+                      readOnly: true,
+                      decoration: _inputDecoration(
+                        "Tanggal",
+                        Icons.calendar_today,
+                        enabled: false,
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            key: ValueKey('start_$start'),
+                            initialValue: start,
+                            readOnly: true,
+                            decoration: _inputDecoration(
+                              "Mulai",
+                              Icons.access_time,
+                              enabled: false,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 15),
+                        Expanded(
+                          child: TextFormField(
+                            key: ValueKey('end_$end'),
+                            initialValue: end,
+                            readOnly: true,
+                            decoration: _inputDecoration(
+                              "Selesai",
+                              Icons.access_time,
+                              enabled: false,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        onPressed: _submitData,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 3,
+                        ),
+                        child: const Text(
+                          "SIMPAN MATCH",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
     );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _jmlPemainController.dispose();
+    _descController.dispose();
+    super.dispose();
   }
 }

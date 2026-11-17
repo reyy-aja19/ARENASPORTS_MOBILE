@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../services/midtrans_payment_service.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
 
 class PaymentScreen extends StatefulWidget {
+  final int paymentId;
   final String paymentUrl;
   final String orderId;
   final double totalPrice;
@@ -16,6 +18,7 @@ class PaymentScreen extends StatefulWidget {
 
   const PaymentScreen({
     super.key,
+    required this.paymentId,
     required this.paymentUrl,
     required this.orderId,
     required this.totalPrice,
@@ -48,8 +51,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
           },
           onPageFinished: (_) {
             if (mounted) setState(() => _isLoading = false);
-            // Begitu halaman Snap selesai dimuat (termasuk halaman sukses),
-            // cek status tanpa menunggu user menekan tombol apa pun.
             _checkPaymentStatus(silent: true);
           },
           onUrlChange: (change) {
@@ -62,11 +63,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
             if (looksPaid) _checkPaymentStatus(silent: true);
           },
         ),
-      )
-      ..loadRequest(Uri.parse(widget.paymentUrl));
+      );
 
-    // Jaring pengaman: kalau halaman sukses tidak memicu navigasi apa pun,
-    // status tetap dicek otomatis setiap 3 detik sampai pembayaran terdeteksi.
+    if (widget.paymentUrl.isNotEmpty) {
+      _controller.loadRequest(Uri.parse(widget.paymentUrl));
+    }
+
+    // Status tetap dicek otomatis setiap 3 detik sampai pembayaran terdeteksi.
     _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _checkPaymentStatus(silent: true);
     });
@@ -85,14 +88,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (!silent) setState(() => _isCheckingStatus = true);
 
     try {
-      final status = await MidtransPaymentService().checkStatus(widget.orderId);
+      final status = await ApiService.instance.paymentStatus(widget.paymentId);
       if (!mounted || _paymentCompleted) return;
 
       if (status.isPaid) {
         _paymentCompleted = true;
         _statusTimer?.cancel();
-        // Langsung kembali ke checkout; checkout akan menyimpan booking lalu
-        // menampilkan layar "Pembayaran Berhasil" secara otomatis.
         Navigator.pop(context, true);
         return;
       }
@@ -101,9 +102,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Pembayaran belum selesai (${status.transactionStatus}). '
+              'Pembayaran belum selesai (${status.payment?.status ?? 'Menunggu'}). '
               'Selesaikan pembayaran lalu tunggu sebentar.',
             ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } on ApiException catch (error) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal memeriksa pembayaran: ${error.message}'),
             behavior: SnackBarBehavior.floating,
           ),
         );

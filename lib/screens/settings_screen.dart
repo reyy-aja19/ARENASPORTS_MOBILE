@@ -1,12 +1,11 @@
-import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/local_auth_service.dart';
+import '../config/api_config.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -21,34 +20,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final phoneController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
-  String? _avatarPath;
+  Uint8List? _avatarBytes;
   String? _avatarUrl;
+  bool _removePhoto = false;
+  bool _isLoading = true;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _loadCurrentUser();
+    _loadProfile();
   }
 
-  Future<void> _loadCurrentUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final rawUser = prefs.getString('user');
-    if (rawUser == null) return;
+  Future<void> _loadProfile() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = await ApiService.instance.profile();
+      final user = data['user'] is Map
+          ? Map<String, dynamic>.from(data['user'] as Map)
+          : <String, dynamic>{};
 
-    final user = Map<String, dynamic>.from(jsonDecode(rawUser));
-    if (!mounted) return;
-
-    setState(() {
-      nameController.text = user['name']?.toString() ?? 'User';
-      emailController.text = user['email']?.toString() ?? 'user@gmail.com';
+      if (!mounted) return;
+      nameController.text = user['name']?.toString() ?? '';
+      emailController.text = user['email']?.toString() ?? '';
       phoneController.text = user['phone']?.toString() ?? '';
-      _avatarUrl = user['avatar']?.toString();
-      if ((_avatarUrl == null || _avatarUrl!.isEmpty) &&
-          user['profile_photo_url'] != null) {
-        _avatarUrl = user['profile_photo_url'].toString();
-      }
-    });
+      setState(() {
+        _avatarUrl = user['profile_photo_url']?.toString();
+        _avatarBytes = null;
+        _removePhoto = false;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnackBar(_messageFor(e), Colors.red);
+    }
   }
 
   Future<void> _pickAvatar() async {
@@ -89,9 +95,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (file == null || !mounted) return;
 
+      Uint8List? bytes;
+      try {
+        bytes = await file.readAsBytes();
+      } on Object catch (e) {
+        if (mounted) {
+          _showSnackBar('Foto gagal dibaca: $e', Colors.red);
+        }
+        return;
+      }
+
+      if (!mounted) return;
       setState(() {
-        _avatarPath = file.path;
+        _avatarBytes = bytes;
         _avatarUrl = null;
+        _removePhoto = false;
       });
     } catch (e) {
       if (mounted) {
@@ -100,28 +118,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<String> _saveAvatarLocally(String sourcePath) async {
-    final appDirectory = await getApplicationDocumentsDirectory();
-    final avatarDirectory = Directory('${appDirectory.path}/profile_images');
-    await avatarDirectory.create(recursive: true);
-
-    final sourceFile = File(sourcePath);
-    final extension = sourcePath.contains('.')
-        ? sourcePath.split('.').last.toLowerCase()
-        : 'jpg';
-    final safeExtension =
-        const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)
-        ? extension
-        : 'jpg';
-    final destinationPath =
-        '${avatarDirectory.path}/avatar_${DateTime.now().microsecondsSinceEpoch}.$safeExtension';
-
-    return (await sourceFile.copy(destinationPath)).path;
-  }
-
   Future<void> _saveProfile() async {
     final name = nameController.text.trim();
     final email = emailController.text.trim();
+    final phone = phoneController.text.trim();
 
     if (name.isEmpty) {
       _showSnackBar('Nama tidak boleh kosong.', Colors.red);
@@ -133,35 +133,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      _showSnackBar('Format email tidak valid.', Colors.red);
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawUser = prefs.getString('user');
-      final user = rawUser == null
-          ? <String, dynamic>{}
-          : Map<String, dynamic>.from(jsonDecode(rawUser));
+      await ApiService.instance.updateProfile(
+        name: name,
+        email: email,
+        phone: phone,
+        photoBytes: _avatarBytes,
+        photoName: _avatarBytes == null ? null : 'profile.jpg',
+        removePhoto: _removePhoto && _avatarBytes == null,
+      );
 
-      final avatarValue = _avatarPath != null
-          ? await _saveAvatarLocally(_avatarPath!)
-          : _avatarUrl ?? user['avatar'] ?? user['profile_photo_url'];
-
-      await LocalAuthService.updateCurrentUser({
-        'name': name,
-        'email': email.toLowerCase(),
-        'phone': phoneController.text.trim(),
-        'avatar': avatarValue,
-        'profile_photo_url': avatarValue,
-      });
-
-      await prefs.setString('user_name', name);
+      if (!mounted) return;
       _showSnackBar('Profil berhasil diperbarui.', const Color(0xFF00A32A));
-      if (mounted) Navigator.pop(context, true);
+      Navigator.pop(context, true);
     } catch (e) {
-      _showSnackBar('Gagal menyimpan profil: $e', Colors.red);
+      if (mounted) {
+        _showSnackBar(_messageFor(e), Colors.red);
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  String _messageFor(Object error) {
+    if (error is ApiException) return error.message;
+    return 'Terjadi kesalahan: $error';
   }
 
   void _showSnackBar(String message, Color color) {
@@ -175,19 +178,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   ImageProvider? _avatarImageProvider() {
-    if (_avatarPath != null && _avatarPath!.isNotEmpty) {
-      return FileImage(File(_avatarPath!));
+    final bytes = _avatarBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return MemoryImage(bytes);
     }
 
-    final avatar = _avatarUrl ?? '';
-    if (avatar.startsWith('http')) {
-      return NetworkImage(avatar);
-    }
-    if (avatar.startsWith('/')) {
-      return FileImage(File(avatar));
-    }
-
-    return null;
+    final resolved = ApiConfig.resolveMediaUrl(_avatarUrl);
+    if (resolved == null) return null;
+    return NetworkImage(resolved);
   }
 
   @override
@@ -200,6 +198,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF5F7F8),
+        appBar: AppBar(title: const Text('Edit Profil')),
+        body: const Center(
+          child: CircularProgressIndicator(color: Color(0xFF00A32A)),
+        ),
+      );
+    }
+
     final initials = nameController.text.trim().isEmpty
         ? 'U'
         : nameController.text
@@ -209,6 +217,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .map((e) => e[0])
               .join()
               .toUpperCase();
+
+    final avatarImage = _avatarImageProvider();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8),
@@ -245,8 +255,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         CircleAvatar(
                           radius: 54,
                           backgroundColor: const Color(0xFFE6F5EA),
-                          backgroundImage: _avatarImageProvider(),
-                          child: _avatarImageProvider() == null
+                          backgroundImage: avatarImage,
+                          child: avatarImage == null
                               ? Text(
                                   initials,
                                   style: const TextStyle(
@@ -281,6 +291,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (avatarImage != null || _avatarBytes != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _avatarBytes = null;
+                            _avatarUrl = null;
+                            _removePhoto = true;
+                          });
+                        },
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        label: const Text('Hapus foto'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade600,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -323,7 +348,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       controller: phoneController,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
-                        labelText: 'No. HP',
+                        labelText: 'No. HP / WhatsApp',
                         prefixIcon: Icon(Icons.phone_outlined),
                         border: OutlineInputBorder(),
                       ),

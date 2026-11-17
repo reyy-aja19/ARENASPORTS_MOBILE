@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import '../models/match_model.dart';
 import '../services/match_api.dart';
+import '../services/session_service.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/guest_access_overlay.dart';
 import 'chat_screen.dart'; // FIX: Impor halaman chat baru agar bisa dipanggil
@@ -47,9 +47,7 @@ class _MatchScreenState extends State<MatchScreen> {
   }
 
   Future<void> _loadSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    final isGuest = token == null || token.isEmpty;
+    final isGuest = !await SessionService.isLoggedIn();
 
     if (!mounted) return;
     setState(() {
@@ -62,15 +60,26 @@ class _MatchScreenState extends State<MatchScreen> {
   }
 
   Future<void> _reloadMatchData() async {
-    final matches = await MatchApi.fetchMatches();
-    final joined = await MatchApi.fetchJoinedMatchIds();
-    final created = await MatchApi.fetchCreatedMatchIds();
-    if (!mounted) return;
-    setState(() {
-      futureMatches = Future.value(matches);
-      _joinedMatchIds = joined;
-      _createdMatchIds = created;
-    });
+    try {
+      final feed = await MatchApi.fetchFeed();
+      if (!mounted) return;
+      setState(() {
+        futureMatches = Future.value(feed.matches);
+        _joinedMatchIds = feed.matches
+            .where((match) => match.joined)
+            .map((match) => match.id)
+            .toSet();
+        _createdMatchIds = feed.matches
+            .where((match) => match.isHost)
+            .map((match) => match.id)
+            .toSet();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        futureMatches = MatchApi.fetchMatches();
+      });
+    }
   }
 
   void _refreshData() {
@@ -330,7 +339,7 @@ class _MatchScreenState extends State<MatchScreen> {
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

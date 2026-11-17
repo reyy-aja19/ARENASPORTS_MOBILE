@@ -2,8 +2,8 @@ import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
 import '../services/push_notification_service.dart';
+import '../services/session_service.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../firebase_options.dart';
 
@@ -67,21 +67,17 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkLogin() async {
-    final prefsFuture = SharedPreferences.getInstance();
     final startupResults = await Future.wait<dynamic>([
-      prefsFuture,
+      SessionService.isLoggedIn(),
       Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
       Future<void>.delayed(const Duration(milliseconds: 2400)),
     ]);
     if (!mounted) return;
 
-    final prefs = startupResults.first as SharedPreferences;
+    final loggedIn = startupResults.first as bool;
     await PushNotificationService.init();
-    final token = prefs.getString('token');
-    Navigator.pushReplacementNamed(
-      context,
-      token != null && token.isNotEmpty ? '/home' : '/login',
-    );
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, loggedIn ? '/home' : '/login');
   }
 
   @override

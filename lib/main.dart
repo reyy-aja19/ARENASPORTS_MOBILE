@@ -14,7 +14,7 @@ import 'screens/request_admin_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/match_screen.dart';
-import 'screens/friends_screen.dart';
+import 'screens/point_screen.dart';
 import 'screens/chatbot_screen.dart';
 import 'screens/success_auth_screen.dart';
 import 'widgets/areno_chatbot_button.dart';
@@ -105,8 +105,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
-    // List halaman untuk navigasi bawah
-    final List<Widget> _pages = [
+    final pages = [
       const HistoryScreen(),
       const MatchScreen(),
       HomeScreen(
@@ -116,14 +115,14 @@ class _MainNavigationState extends State<MainNavigation> {
           });
         },
       ),
-      const FriendsScreen(),
+      const PointScreen(),
       const ProfileScreen(),
     ];
 
     return Scaffold(
       body: Stack(
         children: [
-          IndexedStack(index: _index, children: _pages),
+          IndexedStack(index: _index, children: pages),
           Positioned(
             bottom:
                 kBottomNavigationBarHeight +
@@ -164,9 +163,9 @@ class _MainNavigationState extends State<MainNavigation> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            activeIcon: Icon(Icons.chat_bubble),
-            label: 'Chat',
+            icon: Icon(Icons.monetization_on_outlined),
+            activeIcon: Icon(Icons.monetization_on),
+            label: 'Poin',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),

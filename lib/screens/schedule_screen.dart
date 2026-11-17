@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:penyewaan_lapangan/services/api_service.dart';
+
+import '../services/api_client.dart';
+import '../services/api_service.dart';
 import '../utils/auth_guard.dart';
 import 'checkout_screen.dart';
 
@@ -23,34 +25,19 @@ class ScheduleScreen extends StatefulWidget {
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  final List<String> _timeSlots = [
-    "08:00",
-    "09:00",
-    "10:00",
-    "11:00",
-    "13:00",
-    "14:00",
-    "15:00",
-    "16:00",
-    "17:00",
-    "18:00",
-    "19:00",
-    "20:00",
-    "21:00",
-    "22:00",
-    "23:00",
-  ];
+  static const int _maxHours = 8;
 
   DateTime selectedDate = DateTime.now();
   final List<String> _selectedTimes = [];
-  List<String> _bookedSlots = [];
+  List<AvailabilitySlot> _slots = [];
   bool _isLoadingSlots = true;
+  String? _error;
   Timer? _clockTimer;
 
   @override
   void initState() {
     super.initState();
-    _fetchBookedSlots();
+    _fetchSlots();
     _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted) setState(() {});
     });
@@ -62,23 +49,27 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchBookedSlots() async {
+  Future<void> _fetchSlots() async {
     if (!mounted) return;
-    setState(() => _isLoadingSlots = true);
+    setState(() {
+      _isLoadingSlots = true;
+      _error = null;
+    });
 
     try {
       final tanggalApi = DateFormat('yyyy-MM-dd').format(selectedDate);
-      final apiService = ApiService();
-      final data = await apiService.getBookedSlots(widget.id, tanggalApi);
-
-      if (mounted) {
-        setState(() {
-          _bookedSlots = data;
-          _isLoadingSlots = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoadingSlots = false);
+      final data = await ApiService.instance.availability(widget.id, tanggalApi);
+      if (!mounted) return;
+      setState(() {
+        _slots = data.slots;
+        _isLoadingSlots = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingSlots = false;
+        _error = e.message;
+      });
     }
   }
 
@@ -103,13 +94,30 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     return !slotTime.isAfter(now);
   }
 
+  /// Slot hanya boleh dipilih sebagai satu blok jam yang berurutan.
+  bool _canAddSlot(String time) {
+    if (_selectedTimes.length >= _maxHours) return false;
+    final candidate = [..._selectedTimes, time]..sort();
+    final indexes = <int>[];
+    for (final item in candidate) {
+      final index = _slots.indexWhere((slot) => slot.startTime == item);
+      if (index < 0) return false;
+      indexes.add(index);
+    }
+    return indexes.last - indexes.first == indexes.length - 1;
+  }
+
+  double get _pricePerHour =>
+      double.tryParse(widget.hargaLapangan.replaceAll(RegExp(r'[^0-9]'), '')) ??
+      0;
+
   Future<void> _continueToCheckout() async {
     if (!await requireAuthenticatedUser(context) || !mounted) return;
 
-    final hargaSatuan = int.parse(
-      widget.hargaLapangan.replaceAll(RegExp(r'[^0-9]'), ''),
-    );
-    final totalHarga = hargaSatuan * _selectedTimes.length;
+    final listJam = [..._selectedTimes]..sort();
+    if (listJam.isEmpty) return;
+
+    final totalHarga = _pricePerHour * listJam.length;
     final hargaFinal =
         "Rp ${totalHarga.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}";
 
@@ -120,7 +128,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           lapanganId: widget.id,
           namaLapangan: widget.namaLapangan,
           tanggal: DateFormat('yyyy-MM-dd').format(selectedDate),
-          jam: _selectedTimes.join(', '),
+          jam: listJam.join(', '),
+          jamMulai: listJam.first,
+          durasiJam: listJam.length,
           harga: hargaFinal,
         ),
       ),
@@ -129,6 +139,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final availableSlots = _slots.isEmpty
+        ? false
+        : _slots.any((slot) => slot.available);
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -141,7 +155,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            onPressed: _fetchBookedSlots,
+            onPressed: _fetchSlots,
             icon: const Icon(Icons.refresh, color: Color(0xFF00A32A)),
           ),
         ],
@@ -152,7 +166,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
             child: Text(
-              "${widget.namaLapangan} • Pilih Maksimal 2 Jam",
+              "${widget.namaLapangan} • Pilih hingga $_maxHours jam berurutan",
               style: const TextStyle(fontSize: 14, color: Colors.grey),
             ),
           ),
@@ -179,7 +193,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 });
 
                 await Future.delayed(const Duration(milliseconds: 100));
-                _fetchBookedSlots();
+                _fetchSlots();
               }
             },
             child: Container(
@@ -217,6 +231,27 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 ? const Center(
                     child: CircularProgressIndicator(color: Color(0xFF00A32A)),
                   )
+                : _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                        TextButton.icon(
+                          onPressed: _fetchSlots,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Coba Lagi'),
+                        ),
+                      ],
+                    ),
+                  )
+                : !availableSlots
+                ? const Center(
+                    child: Text('Tidak ada slot tersedia pada tanggal ini.'),
+                  )
                 : GridView.builder(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     gridDelegate:
@@ -226,15 +261,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 10,
                         ),
-                    itemCount: _timeSlots.length,
+                    itemCount: _slots.length,
                     itemBuilder: (context, index) {
-                      final time = _timeSlots[index];
-                      final isBooked = _bookedSlots.contains(time);
+                      final slot = _slots[index];
+                      final time = slot.startTime;
+                      final isBooked = !slot.available;
                       final isSelected = _selectedTimes.contains(time);
                       final isPast = _isSlotPast(time);
                       final isDisabled = isBooked || isPast;
 
-                      // Prioritas warna: booked selalu merah, baru lewat (abu).
                       Color bgColor;
                       Color borderColor;
                       Color textColor;
@@ -274,11 +309,20 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 setState(() {
                                   if (isSelected) {
                                     _selectedTimes.remove(time);
+                                  } else if (_canAddSlot(time)) {
+                                    _selectedTimes.add(time);
+                                    _selectedTimes.sort();
                                   } else {
-                                    if (_selectedTimes.length < 2) {
-                                      _selectedTimes.add(time);
-                                      _selectedTimes.sort();
-                                    }
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          _selectedTimes.length >= _maxHours
+                                              ? "Maksimal $_maxHours jam per booking."
+                                              : "Pilih jam yang berurutan dengan slot sebelumnya.",
+                                        ),
+                                        backgroundColor: Colors.orange,
+                                      ),
+                                    );
                                   }
                                 });
                               },

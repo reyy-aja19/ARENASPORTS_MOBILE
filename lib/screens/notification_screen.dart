@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/notification_model.dart';
-import '../services/local_app_data_service.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../services/session_service.dart';
 import '../widgets/top_banner.dart';
 
 class NotificationScreen extends StatefulWidget {
@@ -14,7 +16,7 @@ class NotificationScreen extends StatefulWidget {
 class _NotificationScreenState extends State<NotificationScreen> {
   List<NotificationModel> _notifications = [];
   bool _isLoading = true;
-  int? _userId;
+  bool _isLoggedIn = false;
 
   @override
   void initState() {
@@ -24,22 +26,35 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   Future<void> _load() async {
     setState(() => _isLoading = true);
-    final uid = await LocalAppDataService.currentUserId();
-    _userId = uid;
-    final list = uid == null
-        ? LocalAppDataService.notifications
-        : await LocalAppDataService.getNotifications(uid);
-    if (!mounted) return;
-    setState(() {
-      _notifications = list;
-      _isLoading = false;
-    });
+    _isLoggedIn = await SessionService.isLoggedIn();
+    if (!_isLoggedIn) {
+      if (!mounted) return;
+      setState(() {
+        _notifications = const [];
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final page = await ApiService.instance.notifications();
+      if (!mounted) return;
+      setState(() {
+        _notifications = page.notifications;
+        _isLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _markAllRead() async {
-    final uid = _userId;
-    if (uid == null) return;
-    await LocalAppDataService.markAllNotificationsRead(uid);
+    if (!_isLoggedIn) return;
+    await ApiService.instance.markAllNotificationsRead();
     await _load();
     if (mounted) {
       showTopBanner(
@@ -51,16 +66,36 @@ class _NotificationScreenState extends State<NotificationScreen> {
     }
   }
 
+  Future<void> _markRead(NotificationModel notif) async {
+    if (!_isLoggedIn || notif.isRead) return;
+    try {
+      await ApiService.instance.markNotificationRead(notif.id);
+      if (!mounted) return;
+      setState(() {
+        _notifications = _notifications
+            .map(
+              (item) =>
+                  item.id == notif.id ? item.copyWith(isRead: true) : item,
+            )
+            .toList();
+      });
+    } on ApiException {
+      // Biarkan notifikasi tetap tampil walau penandaan gagal.
+    }
+  }
+
   Future<void> _delete(NotificationModel notif) async {
-    final uid = _userId;
-    if (uid == null) return;
-    await LocalAppDataService.deleteNotification(uid, notif.id);
+    if (!_isLoggedIn) return;
+    try {
+      await ApiService.instance.deleteNotification(notif.id);
+    } on ApiException {
+      // Abaikan, daftar akan disegarkan di bawah.
+    }
     await _load();
   }
 
   Future<void> _clearAll() async {
-    final uid = _userId;
-    if (uid == null) return;
+    if (!_isLoggedIn) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -84,7 +119,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
       ),
     );
     if (confirmed != true) return;
-    await LocalAppDataService.clearNotifications(uid);
+    try {
+      await ApiService.instance.clearNotifications();
+    } on ApiException {
+      // Abaikan; daftar tetap disegarkan.
+    }
     await _load();
   }
 
@@ -188,7 +227,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Notifikasi booking, pertemanan, dan reward akan muncul di sini.',
+                          'Notifikasi booking, reward, dan pengingat akan muncul di sini.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
@@ -221,92 +260,97 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             ),
                           ),
                           onDismissed: (_) => _delete(notif),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: notif.isRead
-                                    ? Colors.transparent
-                                    : color.withValues(alpha: 0.25),
-                                width: notif.isRead ? 0 : 1.2,
+                          child: GestureDetector(
+                            onTap: () => _markRead(notif),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: notif.isRead
+                                      ? Colors.transparent
+                                      : color.withValues(alpha: 0.25),
+                                  width: notif.isRead ? 0 : 1.2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    color: color.withValues(alpha: 0.12),
-                                    shape: BoxShape.circle,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: color.withValues(alpha: 0.12),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      _iconFor(notif.type),
+                                      color: color,
+                                      size: 20,
+                                    ),
                                   ),
-                                  child: Icon(
-                                    _iconFor(notif.type),
-                                    color: color,
-                                    size: 20,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              notif.title,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 14,
-                                                color: const Color(0xFF1E2A2B),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                notif.title,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: const Color(
+                                                    0xFF1E2A2B,
+                                                  ),
+                                                ),
                                               ),
                                             ),
+                                            if (!notif.isRead)
+                                              Container(
+                                                width: 8,
+                                                height: 8,
+                                                decoration: BoxDecoration(
+                                                  color: color,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          notif.message,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade600,
+                                            height: 1.35,
                                           ),
-                                          if (!notif.isRead)
-                                            Container(
-                                              width: 8,
-                                              height: 8,
-                                              decoration: BoxDecoration(
-                                                color: color,
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        notif.message,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.grey.shade600,
-                                          height: 1.35,
                                         ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        _relativeTime(notif),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade400,
-                                          fontWeight: FontWeight.w500,
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          _relativeTime(notif),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade400,
+                                            fontWeight: FontWeight.w500,
+                                          ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         );

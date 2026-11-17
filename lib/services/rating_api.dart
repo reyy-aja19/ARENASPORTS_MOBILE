@@ -1,46 +1,60 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'api_client.dart';
+import 'api_service.dart';
 
-import '../services/local_app_data_service.dart';
-
+/// Penilaian lapangan berbasis API Laravel.
+///
+/// Rating disimpan per lapangan (satu ulasan per pengguna per lapangan), dan
+/// hanya dapat dikirim untuk booking yang sudah lunas/selesai.
 class RatingApi {
-  static Future<int?> _currentUserId() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt('user_id');
-  }
-
   static Future<bool> hasRated(int bookingId) async {
-    return LocalAppDataService.hasRatedBooking(bookingId);
+    final bookings = await ApiService.instance.bookings();
+    return bookings.any((booking) => booking.id == bookingId && booking.hasReview);
   }
 
+  /// Mengirim review ke `POST /bookings/{id}/review`.
+  ///
+  /// Mengembalikan `true` bila berhasil dan `false` bila server menolak.
   static Future<bool> submit({
     required int fieldId,
     required int bookingId,
     required int rating,
     String comment = '',
   }) async {
-    final uid = await _currentUserId();
-    if (uid == null) return false;
-    return LocalAppDataService.submitRating(
-      userId: uid,
-      fieldId: fieldId,
-      bookingId: bookingId,
-      rating: rating,
-      comment: comment,
-    );
+    try {
+      await ApiService.instance.submitReview(
+        bookingId,
+        rating: rating,
+        message: comment.trim(),
+      );
+      return true;
+    } on ApiException {
+      return false;
+    }
   }
 
   static Future<double> average(int fieldId) async {
-    return LocalAppDataService.getAverageRating(fieldId);
+    try {
+      final court = await ApiService.instance.courtDetail(fieldId);
+      return court.rating;
+    } on ApiException {
+      return 0;
+    }
   }
 
   static Future<int> count(int fieldId) async {
-    return LocalAppDataService.getRatingCount(fieldId);
+    try {
+      final court = await ApiService.instance.courtDetail(fieldId);
+      return court.reviewCount;
+    } on ApiException {
+      return 0;
+    }
   }
 
   static Future<Set<int>> getRatedBookingIds() async {
-    final uid = await _currentUserId();
-    if (uid == null) return {};
-    final ratings = await LocalAppDataService.getUserRatings(uid);
-    return ratings.map((r) => r['bookingId'] as int).toSet();
+    final bookings = await ApiService.instance.bookings();
+    return bookings
+        .where((booking) => booking.hasReview)
+        .map((booking) => booking.id)
+        .toSet();
   }
 }

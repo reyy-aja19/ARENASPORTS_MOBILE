@@ -1,17 +1,18 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'detail_screen.dart';
-import 'package:penyewaan_lapangan/models/field_model.dart';
+import '../models/field_model.dart';
 import '../models/notification_model.dart';
-import '../services/local_app_data_service.dart';
+import '../services/api_client.dart';
+import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../services/push_notification_service.dart';
-import '../widgets/point_center.dart';
+import '../services/session_service.dart';
+import '../widgets/app_network_image.dart';
+import '../widgets/points_category_card.dart';
+import 'nearby_venues_screen.dart';
 import 'notification_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,33 +26,85 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<FieldModel> allFields = [];
   List<FieldModel> filteredFields = [];
-  List<FieldModel> favoriteFields = [];
   String selectedCategory = "Semua";
   String searchQuery = '';
   Position? userPosition;
   String? userLocationName;
   String? locationError;
   bool isLoadingLocation = true;
+  bool isLoadingVenues = true;
+  String? venuesError;
+  int userPoints = 0;
 
   late Future<List<NotificationModel>> futureNotifications;
 
   @override
   void initState() {
     super.initState();
-    allFields = List<FieldModel>.from(LocalAppDataService.fields);
-    filteredFields = List<FieldModel>.from(LocalAppDataService.fields);
     futureNotifications = _loadNotifications();
-    _loadFavorites();
+    _loadVenues();
     _loadCurrentLocation();
+    SessionService.revision.addListener(_onSessionChanged);
+  }
+
+  @override
+  void dispose() {
+    SessionService.revision.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (mounted) _loadPoints();
+  }
+
+  Future<void> _loadVenues() async {
+    if (mounted) {
+      setState(() {
+        isLoadingVenues = true;
+        venuesError = null;
+      });
+    }
+    try {
+      final position = userPosition;
+      final venues = await ApiService.instance.venues(
+        query: searchQuery,
+        lat: position?.latitude,
+        lng: position?.longitude,
+      );
+      if (!mounted) return;
+      setState(() {
+        allFields = venues;
+        isLoadingVenues = false;
+        _applyFilters();
+      });
+      await _loadPoints();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        isLoadingVenues = false;
+        venuesError = e.message;
+      });
+    }
+  }
+
+  Future<void> _loadPoints() async {
+    final points = await SessionService.points();
+    if (!mounted) return;
+    setState(() => userPoints = points);
   }
 
   Future<List<NotificationModel>> _loadNotifications() async {
-    final uid = await LocalAppDataService.currentUserId();
-    if (uid == null) return LocalAppDataService.notifications;
+    final userId = await SessionService.userId();
+    if (userId == null) return const [];
     // Aktifkan notifikasi sistem (inbox Firestore) untuk user ini.
-    PushNotificationService.listenToInbox(uid);
-    PushNotificationService.saveTokenForUser(uid);
-    return LocalAppDataService.getNotifications(uid);
+    PushNotificationService.listenToInbox(userId);
+    PushNotificationService.saveTokenForUser(userId);
+    try {
+      final page = await ApiService.instance.notifications(perPage: 20);
+      return page.notifications;
+    } on ApiException {
+      return const [];
+    }
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -61,177 +114,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        _setLocationError(
-          'Aktifkan layanan lokasi perangkat untuk mencari venue terdekat.',
-        );
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        _setLocationError(
-          'Izin lokasi ditolak. Ketuk di sini untuk mencoba lagi.',
-        );
-        return;
-      }
-      if (permission == LocationPermission.deniedForever) {
-        _setLocationError(
-          'Izin lokasi ditolak permanen. Aktifkan izin lokasi di Pengaturan.',
-        );
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      ).timeout(const Duration(seconds: 20));
+      final position = await LocationService.currentPosition();
       if (!mounted) return;
 
-      String? locationName;
-      try {
-        final placemarks = await Geocoding(
-          locale: const Locale('id', 'ID'),
-        ).placemarkFromCoordinates(position.latitude, position.longitude);
-        for (final placemark in placemarks) {
-          locationName = _formatLocationName(placemark);
-          if (locationName != null) break;
-        }
-      } on PlatformException {
-        locationName = null;
-      }
-      locationName ??= await _lookupLocationName(position);
-      if (!mounted) return;
-
+      // Tampilkan posisi segera; nama daerah dimuat terpisah agar indikator
+      // lokasi tidak berputar menunggu proses geocoding.
       setState(() {
         userPosition = position;
-        userLocationName = locationName;
+        userLocationName = null;
         isLoadingLocation = false;
-        locationError = locationName == null
-            ? 'Nama daerah tidak dapat ditemukan.'
-            : null;
         _applyFilters();
       });
-    } on TimeoutException {
-      _setLocationError(
-        'Waktu mendapatkan lokasi habis. Ketuk di sini untuk mencoba lagi.',
-      );
-    } on LocationServiceDisabledException {
-      _setLocationError(
-        'Aktifkan layanan lokasi perangkat untuk mencari venue terdekat.',
-      );
-    } on PermissionDeniedException {
-      _setLocationError('Izin lokasi diperlukan untuk mencari venue terdekat.');
-    } on PlatformException {
-      _setLocationError(
-        'Lokasi perangkat gagal didapatkan. Ketuk di sini untuk mencoba lagi.',
-      );
-    } on MissingPluginException {
-      _setLocationError('Fitur lokasi tidak tersedia pada perangkat ini.');
+
+      unawaited(_loadVenues());
+      unawaited(_resolveLocationName(position));
+    } on LocationException catch (e) {
+      _setLocationError(e.message);
     }
   }
 
-  String? _formatLocationName(Placemark placemark) {
-    final area =
-        [
-              placemark.subLocality,
-              placemark.locality,
-              placemark.subAdministrativeArea,
-              placemark.administrativeArea,
-            ]
-            .map((value) => value?.trim())
-            .firstWhere(
-              (value) => value != null && value.isNotEmpty,
-              orElse: () => null,
-            );
-    if (area == null || area.isEmpty) return null;
-
-    final detail =
-        [
-              placemark.locality,
-              placemark.subAdministrativeArea,
-              placemark.administrativeArea,
-            ]
-            .map((value) => value?.trim())
-            .firstWhere(
-              (value) => value != null && value.isNotEmpty && value != area,
-              orElse: () => null,
-            );
-    return detail == null ? area : '$area, $detail';
-  }
-
-  Future<String?> _lookupLocationName(Position position) async {
-    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
-      'format': 'jsonv2',
-      'lat': position.latitude.toString(),
-      'lon': position.longitude.toString(),
-      'zoom': '16',
-      'addressdetails': '1',
-    });
-
-    try {
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Accept': 'application/json',
-              'Accept-Language': 'id',
-              'User-Agent': 'ARENASPORTS/1.0',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return null;
-
-      final result = jsonDecode(response.body);
-      if (result is! Map<String, dynamic>) return null;
-      final address = result['address'];
-      if (address is! Map<String, dynamic>) return null;
-
-      final area = _firstAddressValue(address, [
-        'village',
-        'hamlet',
-        'suburb',
-        'neighbourhood',
-        'quarter',
-        'residential',
-        'subdistrict',
-        'district',
-        'city_district',
-        'town',
-        'municipality',
-        'city',
-        'county',
-        'state_district',
-      ]);
-      if (area == null) return null;
-
-      final region = _firstAddressValue(address, [
-        'city',
-        'town',
-        'county',
-        'state_district',
-        'state',
-      ]);
-      return region == null || region == area ? area : '$area, $region';
-    } on http.ClientException {
-      return null;
-    } on FormatException {
-      return null;
-    } on TimeoutException {
-      return null;
-    }
-  }
-
-  String? _firstAddressValue(Map<String, dynamic> address, List<String> keys) {
-    for (final key in keys) {
-      final value = address[key]?.toString().trim();
-      if (value != null && value.isNotEmpty) return value;
-    }
-    return null;
+  Future<void> _resolveLocationName(Position position) async {
+    final name = await LocationService.describe(position);
+    if (!mounted) return;
+    setState(() => userLocationName = name);
   }
 
   void _setLocationError(String message) {
@@ -243,6 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   double? _distanceTo(FieldModel field) {
+    if (field.distanceKm != null) return field.distanceKm! * 1000;
     final position = userPosition;
     final latitude = field.latitude;
     final longitude = field.longitude;
@@ -264,13 +170,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void _applyFilters() {
     final query = searchQuery.toLowerCase();
     final fields = allFields.where((field) {
+      final sports = field.sports.map((s) => s.toLowerCase()).toList();
       final matchesCategory =
-          selectedCategory == 'Semua' || field.type == selectedCategory;
-      final matchesQuery = field.name.toLowerCase().contains(query);
+          selectedCategory == 'Semua' ||
+          sports.contains(selectedCategory.toLowerCase()) ||
+          field.type.toLowerCase().contains(selectedCategory.toLowerCase());
+      final haystack =
+          '${field.name} ${field.city ?? ''} ${field.address ?? ''}'
+              .toLowerCase();
+      final matchesQuery = haystack.contains(query);
       return matchesCategory && matchesQuery;
     }).toList();
 
-    if (userPosition != null) {
+    if (userPosition != null || fields.any((f) => f.distanceKm != null)) {
       fields.sort((a, b) {
         final distanceA = _distanceTo(a);
         final distanceB = _distanceTo(b);
@@ -282,10 +194,11 @@ class _HomeScreenState extends State<HomeScreen> {
     filteredFields = fields;
   }
 
-  Future<void> _loadFavorites() async {
-    final favs = await LocalAppDataService.getFavoriteFields();
-    if (!mounted) return;
-    setState(() => favoriteFields = favs);
+  void _openNearbyVenues() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NearbyVenuesScreen()),
+    );
   }
 
   @override
@@ -297,13 +210,11 @@ class _HomeScreenState extends State<HomeScreen> {
       body: RefreshIndicator(
         onRefresh: () async {
           setState(() {
-            allFields = List<FieldModel>.from(LocalAppDataService.fields);
             selectedCategory = 'Semua';
             searchQuery = '';
-            _applyFilters();
             futureNotifications = _loadNotifications();
           });
-          await Future.wait([_loadFavorites(), _loadCurrentLocation()]);
+          await Future.wait([_loadVenues(), _loadCurrentLocation()]);
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -315,7 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 18),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: PointCenter(
+                child: PointsCategoryCard(
+                  points: userPoints,
+                  pointsError: null,
                   selectedCategory: selectedCategory,
                   onCategoryChanged: (category) {
                     setState(() {
@@ -325,64 +238,92 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-              if (favoriteFields.isNotEmpty) ...[
-                _sectionHeader("Sering Dibooking", Icons.favorite_rounded),
-                _buildHorizontalList(context, favoriteFields),
-                const SizedBox(height: 8),
+              const SizedBox(height: 8),
+              if (isLoadingVenues)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: CircularProgressIndicator(color: Color(0xFF00A32A)),
+                  ),
+                )
+              else if (venuesError != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 24,
+                  ),
+                  child: Column(
+                    children: [
+                      Text(venuesError!, textAlign: TextAlign.center),
+                      TextButton.icon(
+                        onPressed: _loadVenues,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Coba Lagi'),
+                      ),
+                    ],
+                  ),
+                )
+              else ...[
+                if (dataFields.isNotEmpty) _buildFeaturedCard(dataFields.first),
+                if (dataFields.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text('Venue tidak ditemukan.')),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              userPosition == null
+                                  ? 'Semua Venue'
+                                  : 'Venue Terdekat',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                                color: Color(0xFF1E2A2B),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              userPosition == null
+                                  ? 'Temukan lapangan favoritmu'
+                                  : 'Diurutkan dari lokasi kamu',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _openNearbyVenues,
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF00A32A),
+                          textStyle: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        icon: const Icon(Icons.near_me_outlined, size: 16),
+                        label: const Text('Lihat semua'),
+                      ),
+                    ],
+                  ),
+                ),
+                _buildHorizontalList(context, dataFields),
               ],
-              if (dataFields.isNotEmpty) _buildFeaturedCard(dataFields.first),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      userPosition == null ? 'Semua Venue' : 'Venue Terdekat',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Color(0xFF1E2A2B),
-                      ),
-                    ),
-                    Text(
-                      userPosition == null
-                          ? 'Geser ke samping'
-                          : 'Diurutkan dari lokasi kamu',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _buildHorizontalList(context, dataFields),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _sectionHeader(String text, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: const Color(0xFF00A32A)),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-              color: Color(0xFF1E2A2B),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -624,27 +565,15 @@ class _HomeScreenState extends State<HomeScreen> {
     required double width,
     required double height,
   }) {
-    final imageUrl = field.imageUrl;
-    if (imageUrl == null || imageUrl.isEmpty) {
-      return Container(
-        width: width,
-        height: height,
-        color: Colors.grey[200],
-        child: const Icon(Icons.sports_soccer, color: Colors.grey, size: 36),
-      );
-    }
-
-    return Image.network(
-      imageUrl,
+    return AppNetworkImage(
+      field.imageUrl,
       width: width,
       height: height,
       fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => Container(
-        width: width,
-        height: height,
-        color: Colors.grey[200],
-        child: const Icon(Icons.sports_soccer, color: Colors.grey, size: 36),
-      ),
+      fallbackIcon: field.type.toLowerCase().contains('badminton')
+          ? Icons.sports_tennis
+          : Icons.sports_soccer,
+      fallbackIconColor: const Color(0xFF00A32A),
     );
   }
 
@@ -699,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? (isLoadingLocation
                                         ? 'Mendeteksi lokasi...'
                                         : 'Lokasi tidak tersedia')
-                                  : '📍 ${userLocationName ?? 'Nama daerah tidak ditemukan'}',
+                                  : '📍 ${userLocationName ?? 'Koordinat ${userPosition!.latitude.toStringAsFixed(4)}°, ${userPosition!.longitude.toStringAsFixed(4)}°'}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
