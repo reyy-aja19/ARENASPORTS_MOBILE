@@ -290,6 +290,7 @@ Future<({int rating, String comment})?> showAppRatingDialog(
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
+                autofocus: false,
                 maxLines: 3,
                 decoration: InputDecoration(
                   hintText: 'Tulis ulasan (opsional)',
@@ -347,6 +348,5 @@ Future<({int rating, String comment})?> showAppRatingDialog(
       },
     ),
   );
-  controller.dispose();
   return result;
 }
