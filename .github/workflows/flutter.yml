@@ -36,7 +36,7 @@ jobs:
         continue-on-error: true
 
       - name: 🏗️ Build APK
-        run: flutter build apk --release --no-lint
+        run: flutter build apk --release
 
       - name: 📤 Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
           -d text="❌ Build gagal di workflow GitHub Actions"
 
       - name: 🔨 Build Split APK
-        run: flutter build apk --split-per-abi --no-lint
+        run: flutter build apk --split-per-abi
 
 
       - name: 📤 Send APKs to Telegram
