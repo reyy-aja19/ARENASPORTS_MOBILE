@@ -34,7 +34,7 @@ class ApiClient {
   static ApiException _connectionError() {
     return ApiException(
       'Tidak dapat terhubung ke server (${ApiConfig.serverBaseUrl}). '
-      'Pastikan server Laravel aktif dan kamu berada di jaringan yang sama.',
+      'Periksa koneksi internet perangkat lalu coba lagi.',
     );
   }
 
@@ -84,10 +84,7 @@ class ApiClient {
     String method = 'POST',
     bool auth = true,
   }) async {
-    final request = http.MultipartRequest(
-      method,
-      _uri(path, null),
-    );
+    final request = http.MultipartRequest(method, _uri(path, null));
 
     final token = auth ? await SessionService.token() : null;
     if (token != null && token.isNotEmpty) {
@@ -216,10 +213,31 @@ class ApiClient {
 
     throw ApiException(
       decoded is Map && decoded['message'] != null
-          ? decoded['message'].toString()
+          ? _sanitizeError(decoded['message'].toString())
           : 'Permintaan gagal (HTTP ${response.statusCode}).',
       statusCode: response.statusCode,
     );
+  }
+
+  /// Pesan debug Laravel (SQL/host/path server) tidak boleh ditampilkan apa
+  /// adanya di aplikasi. Pengguna cukup diberi tahu bahwa server bermasalah.
+  String _sanitizeError(String message) {
+    final text = message.trim();
+    const internalMarkers = [
+      'SQLSTATE',
+      'Connection:',
+      'vendor/laravel',
+      '/var/www',
+      'Stack trace',
+      'Call to ',
+      'Undefined ',
+    ];
+
+    if (internalMarkers.any(text.contains)) {
+      return 'Server sedang bermasalah. Coba lagi beberapa saat lagi.';
+    }
+
+    return text;
   }
 
   String _errorMessage(Map<String, dynamic> decoded) {
@@ -227,10 +245,10 @@ class ApiClient {
     if (errors is Map) {
       for (final value in errors.values) {
         if (value is List && value.isNotEmpty) {
-          return value.first.toString();
+          return _sanitizeError(value.first.toString());
         }
         if (value != null && value.toString().isNotEmpty) {
-          return value.toString();
+          return _sanitizeError(value.toString());
         }
       }
     }
@@ -238,7 +256,7 @@ class ApiClient {
     final message = decoded['message']?.toString().trim();
     return message == null || message.isEmpty
         ? 'Permintaan gagal diproses server.'
-        : message;
+        : _sanitizeError(message);
   }
 
   void _appendFields(Map<String, String> target, Map<String, dynamic> fields) {

@@ -30,26 +30,30 @@ demo lokal.
 
 ## Konfigurasi API
 
-Base URL diatur di `lib/config/api_config.dart`:
+Base URL diatur di `lib/config/api_config.dart`. Secara default aplikasi
+terhubung ke backend produksi (Railway) yang sama dengan versi web:
 
 | Target | URL default |
 | --- | --- |
-| Android emulator | `http://10.0.2.2:8000/api` |
-| iOS/desktop | `http://127.0.0.1:8000/api` |
+| Android / iOS / desktop / web | `https://arenasports.up.railway.app/api` |
 
-Nilai dapat dioverride saat menjalankan aplikasi:
+Untuk memakai backend lokal saat pengembangan, override saat menjalankan
+aplikasi:
 
 ```bash
 # Android emulator
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8001
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 
 # iOS simulator / desktop
-flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8001
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000
+
+# Perangkat fisik (IP LAN komputer server)
+flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8000
 ```
 
-`API_BASE_URL` diisi alamat root server Laravel (tanpa `/api`, karena aplikasi
-menambahkan `/api` otomatis). Untuk perangkat fisik gunakan IP LAN komputer
-server, mis. `http://192.168.1.10:8000`.
+`API_BASE_URL` diisi alamat root server (tanpa `/api`, karena aplikasi
+menambahkan `/api` otomatis; akhiran `/api` tetap ditoleransi). Di build
+release tanpa `--dart-define`, aplikasi otomatis memakai server Railway.
 
 ## Menjalankan backend
 
@@ -77,6 +81,34 @@ Catatan konfigurasi backend di `.env`:
 - `FONNTE_TOKEN` wajib diisi agar OTP WhatsApp terkirim.
 - `FIREBASE_API_KEY` dipakai untuk verifikasi ID token login Google.
 
+### Deploy backend ke Railway (wajib untuk mobile)
+
+Backend produksi harus menjalankan migrasi dan menyajikan folder storage.
+Kedua hal ini sudah disiapkan di repo web:
+
+- `Dockerfile` menjalankan `php artisan migrate --force` (termasuk tabel
+  `api_tokens` yang dibutuhkan login/token mobile) dan `php artisan storage:link`
+  setiap container start.
+- `docker/nginx.conf` menyajikan `/storage/*` langsung dari
+  `/var/www/html/storage/app/public`, sehingga foto unggahan tetap tampil
+  meskipun symlink belum dibuat.
+
+Agar foto yang diunggah pengguna **tidak hilang setiap redeploy**, pasang
+Railway Volume dan mount ke `/var/www/html/storage/app/public` melalui menu
+Railway → service backend → **Volumes**.
+
+Setelah deploy, cek:
+
+```bash
+curl https://arenasports.up.railway.app/api/health
+curl -I https://arenasports.up.railway.app/storage/venues/<nama-file>.jpg
+```
+
+Foto profil dan foto venue berasal dari endpoint `/storage/...`; jika URL ini
+404, foto tidak akan muncul di aplikasi meskipun API lain berjalan. Foto lama
+yang sudah terlanjur hilang karena redeploy perlu diunggah ulang setelah
+backend diperbaiki.
+
 ## Struktur penting
 
 - `lib/services/api_client.dart` — klien HTTP Bearer token + envelope
@@ -85,6 +117,8 @@ Catatan konfigurasi backend di `.env`:
 - `lib/services/session_service.dart` — token & data user di `SharedPreferences`.
 - `lib/services/auth_api.dart` — login/register/Google/OTP/ubah password.
 - `lib/services/match_api.dart` — open match & chat.
+- `lib/widgets/user_avatar.dart` — avatar profil (foto/ inisial) yang tahan
+  terhadap URL kosong atau foto gagal dimuat.
 - `lib/models/` — `FieldModel`, `CourtModel`, `BookingModel`, `MatchModel`,
   `NotificationModel`.
 

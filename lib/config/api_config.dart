@@ -1,8 +1,17 @@
-import 'package:flutter/foundation.dart';
-
 class ApiConfig {
-  static const Duration requestTimeout = Duration(seconds: 10);
+  static const Duration requestTimeout = Duration(seconds: 20);
 
+  /// Alamat root backend ARENASPORTS yang sudah di-deploy (Railway).
+  ///
+  /// Sama dengan domain yang dipakai versi web, sehingga aplikasi mobile
+  /// langsung terhubung ke server produksi tanpa konfigurasi tambahan.
+  static const String productionBaseUrl = 'https://arenasports.up.railway.app';
+
+  /// Override opsional saat menjalankan aplikasi, misalnya untuk backend lokal:
+  ///
+  /// ```bash
+  /// flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+  /// ```
   static const String _serverBaseUrlOverride = String.fromEnvironment(
     'API_BASE_URL',
   );
@@ -10,17 +19,33 @@ class ApiConfig {
   static String get serverBaseUrl {
     final override = _serverBaseUrlOverride.trim();
     if (override.isNotEmpty) {
-      return override.replaceFirst(RegExp(r'/+$'), '');
+      return _normalizeOverride(override);
     }
 
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'http://10.0.2.2:8000';
-    }
-
-    return 'http://127.0.0.1:8000';
+    return productionBaseUrl;
   }
 
   static String get apiBaseUrl => '$serverBaseUrl/api';
+
+  /// Menormalkan nilai `API_BASE_URL` agar tidak menghasilkan URL ganda
+  /// seperti `/api/api` atau `http://host:8000/`.
+  static String _normalizeOverride(String value) {
+    var url = value.trim();
+
+    // Tambahkan skema bila pengguna hanya menulis host:port.
+    if (!url.contains('://')) {
+      url = 'http://$url';
+    }
+
+    url = url.replaceFirst(RegExp(r'/+$'), '');
+
+    // Aplikasi menambahkan `/api` sendiri, jadi buang bila sudah ditulis.
+    if (url.toLowerCase().endsWith('/api')) {
+      url = url.substring(0, url.length - '/api'.length);
+    }
+
+    return url.replaceFirst(RegExp(r'/+$'), '');
+  }
 
   /// Menormalkan URL media dari API agar tetap bisa dibuka di perangkat.
   ///
@@ -44,7 +69,11 @@ class ApiConfig {
     }
 
     const localHosts = {'127.0.0.1', 'localhost', '0.0.0.0'};
-    if (!localHosts.contains(uri.host)) return text;
+    final sameHost = uri.host == server.host;
+    final shouldRewrite =
+        localHosts.contains(uri.host) ||
+        (sameHost && uri.scheme != server.scheme);
+    if (!shouldRewrite) return text;
 
     final port = server.hasPort ? ':${server.port}' : '';
     final path = uri.path.startsWith('/') ? uri.path : '/${uri.path}';

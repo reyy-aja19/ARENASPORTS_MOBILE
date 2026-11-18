@@ -3,9 +3,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../config/api_config.dart';
 import '../services/api_client.dart';
 import '../services/api_service.dart';
+import '../widgets/photo_gallery_screen.dart';
+import '../widgets/user_avatar.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -177,15 +178,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  ImageProvider? _avatarImageProvider() {
+  Widget _buildAvatarPreview(String initials) {
     final bytes = _avatarBytes;
     if (bytes != null && bytes.isNotEmpty) {
-      return MemoryImage(bytes);
+      return ClipOval(
+        child: Image.memory(bytes, width: 108, height: 108, fit: BoxFit.cover),
+      );
     }
 
-    final resolved = ApiConfig.resolveMediaUrl(_avatarUrl);
-    if (resolved == null) return null;
-    return NetworkImage(resolved);
+    return UserAvatar(
+      url: _avatarUrl,
+      radius: 54,
+      initials: initials,
+      onTap: (_avatarUrl?.isNotEmpty ?? false) ? _openAvatarPhoto : null,
+    );
+  }
+
+  Future<void> _openAvatarPhoto() async {
+    final url = _avatarUrl;
+    if (url == null || url.isEmpty) return;
+    await PhotoGalleryScreen.open(context, images: [url], title: 'Foto Profil');
   }
 
   @override
@@ -217,8 +229,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               .map((e) => e[0])
               .join()
               .toUpperCase();
-
-    final avatarImage = _avatarImageProvider();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8),
@@ -252,21 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Stack(
                       alignment: Alignment.bottomRight,
                       children: [
-                        CircleAvatar(
-                          radius: 54,
-                          backgroundColor: const Color(0xFFE6F5EA),
-                          backgroundImage: avatarImage,
-                          child: avatarImage == null
-                              ? Text(
-                                  initials,
-                                  style: const TextStyle(
-                                    color: Color(0xFF00A32A),
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                )
-                              : null,
-                        ),
+                        _buildAvatarPreview(initials),
                         Container(
                           decoration: const BoxDecoration(
                             color: Color(0xFF00A32A),
@@ -291,7 +287,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (avatarImage != null || _avatarBytes != null)
+                    if ((_avatarUrl?.isNotEmpty ?? false) ||
+                        _avatarBytes != null)
                       TextButton.icon(
                         onPressed: () {
                           setState(() {
