@@ -1,26 +1,46 @@
-# Midtrans Sandbox Backend
+# Midtrans Backend (Railway)
 
-Backend ini hanya menggunakan environment Sandbox dan menyimpan Server Key di server.
+Backend ini terhubung ke domain produksi **https://arenasports.up.railway.app** (disamakan dengan domain Flutter di `lib/config/api_config.dart`), jadi Midtrans **tidak perlu berjalan di localhost** lagi.
 
-## Menjalankan
+## Variabel lingkungan (diatur di dashboard Railway)
 
-1. Jalankan `npm install` di folder `backend`.
-2. Salin `.env.example` menjadi `.env`.
-3. Ambil **Server Key** dari menu Settings > Access Keys pada dashboard Sandbox, lalu isi `MIDTRANS_SERVER_KEY` di `.env`. Jangan masukkan key tersebut ke Flutter, chat, atau Git.
-4. Jalankan `npm start`.
-5. Pastikan `http://localhost:3000/health` menampilkan `midtransConfigured: true`.
+Masuk ke project Railway → tab **Variables**, lalu isi:
 
-Untuk HP fisik, HP dan komputer harus berada pada jaringan Wi-Fi yang sama. Jalankan Flutter dengan alamat LAN komputer, misalnya:
+| Variabel | Contoh | Keterangan |
+|---|---|---|
+| `PORT` | `3000` | Port yang dipakai Railway |
+| `APP_BASE_URL` | `https://arenasports.up.railway.app` | Domain backend; dipakai sebagai `finish_url` Midtrans setelah pembayaran |
+| `MIDTRANS_IS_PRODUCTION` | `false` | `false` = Sandbox, `true` = Production |
+| `MIDTRANS_SERVER_KEY` | `SB-Mid-server-...` | **Server Key** dari Midtrans Dashboard (Settings > Access Keys). Jangan masukkan ke Flutter atau Git. |
 
-```powershell
-flutter run --dart-define=MIDTRANS_API_BASE_URL=http://192.168.1.14:3000
+Untuk transaksi production nyata, ganti Server Key dengan **Production Server Key** dan atur `MIDTRANS_IS_PRODUCTION=true`.
+
+## Deploy ke Railway
+
+1. Push kode ke GitHub (folder `backend` ikut ter-upload).
+2. Di Railway: **New Project** → **Deploy from GitHub repo** → pilih repo ini.
+3. Saat Railway deteksi monorepo, atur:
+   - **Build Command**: `cd backend && npm install`
+   - **Start Command**: `cd backend && npm start`
+   - At tambahkan file `railway.toml` di root jika diperlukan.
+4. Tambahkan variabel lingkungan di atas pada tab Railway **Variables**.
+5. Buka `https://arenasports.up.railway.app/health` — harus menampilkan:
+
+```json
+{
+  "ok": true,
+  "environment": "sandbox",
+  "baseUrl": "https://arenasports.up.railway.app",
+  "midtransConfigured": true
+}
 ```
 
-Alamat LAN komputer dapat berbeda. Izinkan koneksi masuk ke port `3000` pada Windows Firewall jika diminta.
+## Endpoint yang digunakan aplikasi Flutter
 
-Endpoint yang digunakan aplikasi:
+- `POST /api/payments/snap` — membuat Snap transaction, response berisi `orderId`, `token`, dan `redirectUrl`.
+- `GET /api/payments/:orderId/status` — memeriksa status pembayaran (digunakan saat mengecek di `PaymentScreen`).
+- `GET /health` — cek kesiapan Midtrans.
 
-- `POST /api/payments/snap` untuk membuat Snap transaction dan memperoleh redirect URL.
-- `GET /api/payments/:orderId/status` untuk memverifikasi status pembayaran melalui Midtrans sebelum booking disimpan.
+Flutter sudah mengatur `apiBaseUrl` ke `https://arenasports.up.railway.app/api`, jadi **tidak perlu** `flutter run --dart-define=API_BASE_URL=...` lagi.
 
-Jangan gunakan konfigurasi ini untuk transaksi production. Backend ini menerima nominal dari aplikasi dan hanya ditujukan untuk pengujian Sandbox; untuk production, nominal harus dihitung dan diverifikasi oleh backend dari data booking tepercaya.
+Catatan: `.env` berada di `.gitignore` dan **tidak** di-commit; nilai sebenarnya diatur di dashboard Railway.
