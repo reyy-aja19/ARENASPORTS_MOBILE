@@ -338,6 +338,10 @@ class ApiService {
     return PaymentStatus.fromJson(_map(data));
   }
 
+  Future<void> cancelBooking(int bookingId) async {
+    await ApiClient.instance.post('/bookings/$bookingId/cancel');
+  }
+
   Future<RewardsData> rewards() async {
     final data = await ApiClient.instance.get('/rewards');
     final map = _map(data);

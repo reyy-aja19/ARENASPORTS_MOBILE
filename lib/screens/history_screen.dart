@@ -337,7 +337,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                   ),
                 const SizedBox(height: 12),
-                if (canPay)
+                if (canPay) ...[
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
@@ -356,6 +356,32 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _cancelPayment(booking),
+                      icon: const Icon(
+                        Icons.cancel_outlined,
+                        size: 18,
+                        color: Colors.redAccent,
+                      ),
+                      label: const Text(
+                        "BATALKAN PEMBAYARAN",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.redAccent,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.redAccent, width: 1.2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 if (booking.isPaid) ...[
                   const SizedBox(height: 8),
                   SizedBox(
@@ -708,6 +734,55 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         );
       }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _cancelPayment(BookingModel booking) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Batalkan Pembayaran'),
+        content: Text(
+          'Batalkan pembayaran untuk booking ini? Status booking '
+          'akan menjadi Dibatalkan.',
+          style: TextStyle(color: Colors.grey.shade700),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Tidak'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Batalkan'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.instance.cancelBooking(booking.id);
+      if (!mounted) return;
+      _refreshData();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Booking di ${booking.id} dibatalkan.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

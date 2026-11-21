@@ -137,6 +137,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
   }
 
+  void _cancelCheckout() {
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(
       context,
@@ -314,48 +319,80 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
         child: SafeArea(
           top: false,
-          child: SizedBox(
-            width: double.infinity,
-            height: 54,
-            child: ElevatedButton.icon(
-              onPressed: _isLoading ? null : _handlePayment,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : Icon(
-                      paymentMethod == 'Midtrans'
-                          ? Icons.credit_card_rounded
-                          : Icons.storefront_outlined,
-                      size: 20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _handlePayment,
+                  icon: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : Icon(
+                          paymentMethod == 'Midtrans'
+                              ? Icons.credit_card_rounded
+                              : Icons.storefront_outlined,
+                          size: 20,
+                        ),
+                  label: Text(
+                    _isLoading
+                        ? 'Memproses...'
+                        : (paymentMethod == 'Midtrans'
+                              ? 'Lanjut ke Pembayaran'
+                              : 'Konfirmasi Booking'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
                     ),
-              label: Text(
-                _isLoading
-                    ? 'Memproses...'
-                    : (paymentMethod == 'Midtrans'
-                          ? 'Lanjut ke Pembayaran'
-                          : 'Konfirmasi Booking'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00A32A),
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey.shade300,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00A32A),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey.shade300,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 42,
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _cancelCheckout,
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                    size: 18,
+                    color: Colors.redAccent,
+                  ),
+                  label: const Text(
+                    'Batalkan Pembayaran',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.redAccent, width: 1.6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),

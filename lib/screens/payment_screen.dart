@@ -34,7 +34,6 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   late final WebViewController _controller;
   bool _isLoading = true;
-  bool _isCheckingStatus = false;
   bool _isFetchingStatus = false;
   bool _paymentCompleted = false;
   Timer? _statusTimer;
@@ -84,9 +83,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _checkPaymentStatus({bool silent = false}) async {
     if (_paymentCompleted || _isFetchingStatus) return;
 
-    _isFetchingStatus = true;
-    if (!silent) setState(() => _isCheckingStatus = true);
-
     try {
       final status = await ApiService.instance.paymentStatus(widget.paymentId);
       if (!mounted || _paymentCompleted) return;
@@ -127,11 +123,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         );
       }
-    } finally {
-      _isFetchingStatus = false;
-      if (mounted && !silent) {
-        setState(() => _isCheckingStatus = false);
-      }
     }
   }
 
@@ -156,73 +147,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 child: CircularProgressIndicator(color: Color(0xFF00A32A)),
               ),
           ],
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${widget.venueName} • ${widget.date} • ${widget.time}\n'
-                '${NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format(widget.totalPrice)}',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey.shade700, height: 1.4),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF00A32A),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      'Status pembayaran dicek otomatis. '
-                      'Notifikasi berhasil akan muncul sendiri.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _isCheckingStatus
-                      ? null
-                      : () => _checkPaymentStatus(),
-                  icon: _isCheckingStatus
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  label: Text(
-                    _isCheckingStatus
-                        ? 'Memeriksa status...'
-                        : 'Cek Ulang Status',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00A32A),
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
