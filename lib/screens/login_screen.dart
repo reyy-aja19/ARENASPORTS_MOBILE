@@ -391,12 +391,16 @@ class _LoginScreenState extends State<LoginScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         backgroundColor: Colors.white,
       ),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.g_mobiledata, color: Colors.red, size: 30),
-          SizedBox(width: 12),
-          Text(
+          Image.network(
+            'https://img.icons8.com/color/48/000000/google-logo.png',
+            height: 26,
+            width: 26,
+          ),
+          const SizedBox(width: 12),
+          const Text(
             "Masuk Dengan Google",
             style: TextStyle(
               color: Colors.black87,
