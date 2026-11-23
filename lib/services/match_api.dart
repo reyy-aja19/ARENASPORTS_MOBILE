@@ -51,6 +51,19 @@ class MatchApi {
     return (await fetchFeed()).eligibleBookings;
   }
 
+  /// Detail satu Open Match/event (GET /open-matches/{id}).
+  static Future<MatchModel> matchDetail(int matchId) async {
+    final data = await ApiClient.instance.get('/open-matches/$matchId');
+    final map = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    return MatchModel.fromJson(
+      map['match'] is Map
+          ? Map<String, dynamic>.from(map['match'] as Map)
+          : const {},
+    );
+  }
+
   static Future<Set<int>> fetchJoinedMatchIds() async {
     final matches = await fetchMatches();
     return matches.where((match) => match.joined).map((m) => m.id).toSet();

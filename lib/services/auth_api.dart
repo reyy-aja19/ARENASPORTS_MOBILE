@@ -91,6 +91,36 @@ class AuthApi {
     );
   }
 
+  /// Selesaikan alur reset password setelah menerima token via email.
+  static Future<Map<String, dynamic>> resetPassword({
+    required String token,
+    required String email,
+    required String password,
+  }) async {
+    final data = await ApiClient.instance.post(
+      '/auth/reset-password',
+      auth: false,
+      body: {
+        'token': token.trim(),
+        'email': email.trim(),
+        'password': password,
+        'password_confirmation': password,
+      },
+    );
+    return data is Map ? Map<String, dynamic>.from(data) : {};
+  }
+
+  /// Hapus sesi lain milik akun ini (POST /auth/logout-all).
+  static Future<void> logoutAll() async {
+    try {
+      await ApiClient.instance.post('/auth/logout-all');
+    } catch (_) {
+      // Sesi lokal tetap dibersihkan meskipun server tidak dapat dihubungi.
+    } finally {
+      await SessionService.clear();
+    }
+  }
+
   static Future<Map<String, dynamic>> me() async {
     final data = await ApiClient.instance.get('/auth/me');
     final user = _userFrom(data);

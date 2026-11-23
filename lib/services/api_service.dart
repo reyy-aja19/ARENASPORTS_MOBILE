@@ -150,6 +150,14 @@ class RewardsData {
   final List<Map<String, dynamic>> redemptions;
 }
 
+/// Riwayat pembayaran dari GET /payments.
+class PaymentHistory {
+  const PaymentHistory({required this.payments, required this.total});
+
+  final List<PaymentModel> payments;
+  final int total;
+}
+
 /// Seluruh permintaan HTTP ke API Laravel ARENASPORTS untuk role user.
 class ApiService {
   ApiService._();
@@ -191,6 +199,22 @@ class ApiService {
               )
               .toList()
         : <FieldModel>[];
+  }
+
+  /// Venue berdekatan dengan koordinat pengguna (GET /chatbot/nearby-venues).
+  Future<List<FieldModel>> nearbyVenues({double? lat, double? lng}) async {
+    final data = await ApiClient.instance.get(
+      '/chatbot/nearby-venues',
+      query: _coords(lat, lng),
+      auth: false,
+    );
+    final map = _map(data);
+    return (map['venues'] as List? ?? [])
+        .whereType<Map>()
+        .map(
+          (item) => FieldModel.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
   }
 
   Future<FieldModel> venueDetail(
@@ -336,6 +360,21 @@ class ApiService {
   Future<PaymentStatus> paymentStatus(int paymentId) async {
     final data = await ApiClient.instance.get('/payments/$paymentId/status');
     return PaymentStatus.fromJson(_map(data));
+  }
+
+  /// Riwayat pembayaran per pengguna (GET /payments).
+  Future<PaymentHistory> paymentHistory() async {
+    final data = await ApiClient.instance.get('/payments');
+    final map = _map(data);
+    return PaymentHistory(
+      payments: (map['payments'] as List? ?? [])
+          .whereType<Map>()
+          .map(
+            (item) => PaymentModel.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(),
+      total: _int(map['total']),
+    );
   }
 
   Future<void> cancelBooking(int bookingId) async {
