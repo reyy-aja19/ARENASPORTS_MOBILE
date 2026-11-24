@@ -25,6 +25,7 @@ class AuthApi {
     required String email,
     required String phone,
     required String password,
+    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/register',
@@ -36,6 +37,8 @@ class AuthApi {
         'password': password,
         'password_confirmation': password,
         'device_name': _deviceName,
+        if (turnstileToken != null && turnstileToken.isNotEmpty)
+          'cf-turnstile-response': turnstileToken,
       },
     );
     return _applySession(data);
@@ -54,6 +57,7 @@ class AuthApi {
     required String phone,
     String purpose = 'login',
     String? name,
+    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/whatsapp/request',
@@ -62,6 +66,8 @@ class AuthApi {
         'phone': phone.trim(),
         'purpose': purpose,
         if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+        if (turnstileToken != null && turnstileToken.isNotEmpty)
+          'cf-turnstile-response': turnstileToken,
       },
     );
     return data is Map ? Map<String, dynamic>.from(data) : {};

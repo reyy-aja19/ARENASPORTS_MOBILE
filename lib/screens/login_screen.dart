@@ -4,6 +4,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_api.dart';
+import '../widgets/turnstile_widget.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,6 +17,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _passwordVisible = false;
 
   // --- LOGIN EMAIL / NOMOR HP ---
   Future<void> _handleLoginManual() async {
@@ -98,10 +100,7 @@ class _LoginScreenState extends State<LoginScreen> {
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email terdaftar',
-            hintText: 'nama@email.com',
-          ),
+          decoration: const InputDecoration(labelText: 'Email terdaftar'),
         ),
         actions: [
           TextButton(
@@ -109,12 +108,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: const Text('Batal'),
           ),
           ElevatedButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, controller.text.trim()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00A32A),
-              foregroundColor: Colors.white,
-            ),
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
             child: const Text('Kirim'),
           ),
         ],
@@ -137,8 +131,9 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- LOGIN WHATSAPP OTP ---
+  // --- LOGIN WHATSAPP (OTP) ---
   Future<void> _handleWhatsAppLogin() async {
+    // 1. Minta nomor HP
     final phoneController = TextEditingController();
     final phone = await showDialog<String>(
       context: context,
@@ -160,10 +155,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ElevatedButton(
             onPressed: () =>
                 Navigator.pop(dialogContext, phoneController.text.trim()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00A32A),
-              foregroundColor: Colors.white,
-            ),
             child: const Text('Kirim OTP'),
           ),
         ],
@@ -172,24 +163,28 @@ class _LoginScreenState extends State<LoginScreen> {
     phoneController.dispose();
     if (phone == null || phone.isEmpty) return;
 
-    setState(() => _isLoading = true);
-    String? otpToken;
-    try {
-      final data = await AuthApi.requestWhatsAppOtp(phone: phone);
-      otpToken = data['otp_token']?.toString();
-      if (otpToken == null || otpToken.isEmpty) {
-        _showSnackBar('Kode OTP gagal dibuat oleh server.', Colors.red);
-        return;
-      }
-    } on ApiException catch (e) {
-      _showSnackBar(e.message, Colors.red);
-      return;
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-
+    // 2. Selesaikan verifikasi CAPTCHA (Cloudflare Turnstile) — sama seperti web.
+    final turnstileToken = await showTurnstileDialog(
+      context: context,
+      title: 'Verifikasi CAPTCHA',
+    );
+    if (turnstileToken == null) return;
     if (!mounted) return;
 
+    // 3. Minta OTP WhatsApp
+    setState(() => _isLoading = true);
+    final data = await AuthApi.requestWhatsAppOtp(
+      phone: phone,
+      turnstileToken: turnstileToken,
+    );
+    final otpToken = data['otp_token']?.toString();
+    if (otpToken == null || otpToken.isEmpty) {
+      _showSnackBar('Kode OTP gagal dibuat oleh server.', Colors.red);
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    // 4. Masukkan kode OTP
     final otpController = TextEditingController();
     final otp = await showDialog<String>(
       context: context,
@@ -209,19 +204,17 @@ class _LoginScreenState extends State<LoginScreen> {
           ElevatedButton(
             onPressed: () =>
                 Navigator.pop(dialogContext, otpController.text.trim()),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00A32A),
-              foregroundColor: Colors.white,
-            ),
             child: const Text('Verifikasi'),
           ),
         ],
       ),
     );
     otpController.dispose();
-    if (otp == null || otp.isEmpty) return;
+    if (otp == null || otp.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
-    setState(() => _isLoading = true);
     try {
       await AuthApi.verifyWhatsAppOtp(otpToken: otpToken, otp: otp);
       if (mounted) Navigator.pushReplacementNamed(context, '/home');
@@ -232,153 +225,254 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showSnackBar(String message, Color color) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
+  // --- BUILD: background gradasi + card putih bersih ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 30),
-        child: Column(
-          children: [
-            const SizedBox(height: 80),
-            Image.asset(
-              'assets/images/arenasports_icon.png',
-              width: 120,
-              height: 120,
-            ),
-            const Text(
-              'ARENASPORTS',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1B5E20),
-              ),
-            ),
-            const SizedBox(height: 50),
-
-            _inputField("Email / No. HP", _emailController),
-            const SizedBox(height: 20),
-            _inputField(
-              "Masukkan Password",
-              _passwordController,
-              isPassword: true,
-            ),
-
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: _isLoading ? null : _handleForgotPassword,
-                child: const Text(
-                  'Lupa Password?',
-                  style: TextStyle(
-                    color: Color(0xFF00A32A),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 10),
-
-            ElevatedButton(
-              onPressed: _isLoading ? null : _handleLoginManual,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF00A32A),
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                elevation: 2,
-              ),
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Text(
-                      "LOGIN",
+      backgroundColor: Colors.transparent,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF166534), Color(0xFF052E1A)],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 15),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Image.asset(
+                      'assets/images/arenasports_icon.png',
+                      width: 140,
+                      height: 64,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'ARENASPORTS',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
+                        fontSize: 26,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-            ),
-
-            const SizedBox(height: 25),
-            const Text(
-              "atau",
-              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 25),
-
-            _googleButton(),
-            const SizedBox(height: 12),
-            _whatsAppButton(),
-
-            const SizedBox(height: 30),
-            _buildRegisterLink(),
-            const SizedBox(height: 20),
-          ],
+                    const SizedBox(height: 2),
+                    const Text(
+                      'FIND YOUR GAME',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFFA5EFBF),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              _buildCard(),
+              const SizedBox(height: 40),
+            ],
+          ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _inputField(
-    String label,
-    TextEditingController controller, {
+  Widget _buildCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F2D1F),
+            offset: Offset(0, 8),
+            blurRadius: 20,
+            spreadRadius: -2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'SELAMAT DATANG KEMBALI',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.6,
+              color: Color(0xFF2F855A),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Masuk ke akunmu',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E2A2B),
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'Lanjutkan perjalanan olahraga bersama ArenaSports.',
+            style: TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+          ),
+          const SizedBox(height: 26),
+          _styledField(
+            label: 'Email / No. HP',
+            controller: _emailController,
+            icon: Icons.alternate_email_rounded,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 14),
+          _styledField(
+            label: 'Masukkan Password',
+            controller: _passwordController,
+            icon: Icons.lock_rounded,
+            isPassword: true,
+            showSuffix: true,
+          ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _isLoading ? null : _handleForgotPassword,
+              child: const Text(
+                'Lupa Password?',
+                style: TextStyle(
+                  color: Color(0xFF00A32A),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          _primaryButton(
+            label: 'LOGIN',
+            onPressed: _handleLoginManual,
+            enabled: !_isLoading,
+          ),
+          const SizedBox(height: 16),
+          const Center(
+            child: Text(
+              'atau lanjutkan dengan',
+              style: TextStyle(
+                color: Color(0xFF9CA3AF),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _googleButton(),
+          const SizedBox(height: 10),
+          _whatsAppButton(),
+          const SizedBox(height: 26),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Belum punya akun? ',
+                style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13),
+              ),
+              GestureDetector(
+                onTap: () => Navigator.pushNamed(context, '/register'),
+                child: const Text(
+                  'Daftar Sekarang',
+                  style: TextStyle(
+                    color: Color(0xFF00A32A),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _styledField({
+    required String label,
+    required TextEditingController controller,
+    required IconData icon,
     bool isPassword = false,
+    bool showSuffix = false,
+    TextInputType keyboardType = TextInputType.text,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            label,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-          ),
+    return TextField(
+      controller: controller,
+      obscureText: isPassword && !_passwordVisible,
+      keyboardType: keyboardType,
+      style: const TextStyle(
+        color: Color(0xFF1E2A2B),
+        fontWeight: FontWeight.w600,
+        fontSize: 15,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
+        filled: true,
+        fillColor: const Color(0xFFF3F4F6),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
         ),
-        TextField(
-          controller: controller,
-          obscureText: isPassword,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.grey[100],
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 20,
-              vertical: 16,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(15),
-              borderSide: BorderSide(color: Colors.grey.shade200),
-            ),
-          ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0xFF00A32A), width: 1.5),
         ),
-      ],
+        suffixIcon: showSuffix && isPassword
+            ? IconButton(
+                icon: Icon(
+                  _passwordVisible
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  size: 20,
+                  color: const Color(0xFF9CA3AF),
+                ),
+                onPressed: () =>
+                    setState(() => _passwordVisible = !_passwordVisible),
+              )
+            : null,
+      ),
+    );
+  }
+
+  Widget _primaryButton({
+    required String label,
+    required VoidCallback onPressed,
+    bool enabled = true,
+  }) {
+    return ElevatedButton(
+      onPressed: enabled ? onPressed : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF00A32A),
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+          color: Colors.white,
+        ),
+      ),
     );
   }
 
@@ -386,9 +480,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return OutlinedButton(
       onPressed: _isLoading ? null : _handleGoogleSignIn,
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         side: BorderSide(color: Colors.grey.shade300),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         backgroundColor: Colors.white,
       ),
       child: Row(
@@ -396,12 +490,12 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           Image.network(
             'https://img.icons8.com/color/48/000000/google-logo.png',
-            height: 26,
-            width: 26,
+            height: 24,
+            width: 24,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           const Text(
-            "Masuk Dengan Google",
+            'Masuk Dengan Google',
             style: TextStyle(
               color: Colors.black87,
               fontWeight: FontWeight.bold,
@@ -417,18 +511,18 @@ class _LoginScreenState extends State<LoginScreen> {
     return OutlinedButton(
       onPressed: _isLoading ? null : _handleWhatsAppLogin,
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         side: BorderSide(color: Colors.green.shade300),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         backgroundColor: Colors.white,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.chat, color: Colors.green.shade600, size: 24),
-          const SizedBox(width: 12),
+          Icon(Icons.chat_bubble_rounded, color: Colors.green.shade700, size: 22),
+          const SizedBox(width: 10),
           const Text(
-            "Masuk Dengan WhatsApp (OTP)",
+            'Masuk Dengan WhatsApp (OTP)',
             style: TextStyle(
               color: Colors.black87,
               fontWeight: FontWeight.bold,
@@ -440,22 +534,17 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildRegisterLink() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Text("Belum punya akun? "),
-        GestureDetector(
-          onTap: () => Navigator.pushNamed(context, '/register'),
-          child: const Text(
-            "Daftar Sekarang",
-            style: TextStyle(
-              color: Color(0xFF00A32A),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    );
+  void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 }
