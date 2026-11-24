@@ -47,8 +47,7 @@ class PushNotificationService {
     });
 
     try {
-      final token = await FirebaseMessaging.instance.getToken();
-      debugPrint('FCM token: $token');
+      await FirebaseMessaging.instance.getToken();
     } catch (e) {
       debugPrint('Gagal mendapatkan FCM token: $e');
     }
