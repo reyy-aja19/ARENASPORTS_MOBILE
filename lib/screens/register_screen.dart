@@ -1,6 +1,9 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_api.dart';
@@ -258,6 +261,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 14),
           _googleButton(),
           const SizedBox(height: 10),
+          _appleButton(),
+          const SizedBox(height: 10),
           _whatsAppButton(),
           const SizedBox(height: 26),
           Row(
@@ -372,6 +377,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  Widget _appleButton() {
+    return OutlinedButton(
+      onPressed: _isLoading ? null : _handleAppleRegister,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        side: const BorderSide(color: Color(0xFF111827)),
+        backgroundColor: Colors.white,
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.apple, color: Colors.black, size: 24),
+          SizedBox(width: 10),
+          Text(
+            'Daftar Dengan Apple',
+            style: TextStyle(
+              color: Colors.black87,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _whatsAppButton() {
     return OutlinedButton(
       onPressed: _isLoading ? null : _handleWhatsAppRegister,
@@ -436,6 +468,52 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  // --- DAFTAR APPLE ---
+  Future<void> _handleAppleRegister() async {
+    if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) {
+      _showSnackBar('Login Apple tidak didukung di perangkat ini.', Colors.orange);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      final identityToken = credential.identityToken;
+      if (identityToken == null || identityToken.isEmpty) {
+        throw const ApiException('Token Apple tidak tersedia. Coba lagi.');
+      }
+
+      final givenName = (credential.givenName ?? '').trim();
+      final familyName = (credential.familyName ?? '').trim();
+      final fullName = [givenName, familyName].where((e) => e.isNotEmpty).join(' ');
+
+      await AuthApi.loginWithApple(
+        identityToken: identityToken,
+        authorizationCode: credential.authorizationCode,
+        email: credential.email,
+        name: fullName.isNotEmpty ? fullName : null,
+      );
+
+      if (mounted) Navigator.pushReplacementNamed(context, '/home');
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code != AuthorizationErrorCode.canceled) {
+        _showSnackBar('Gagal Daftar Apple: ${e.message}', Colors.red);
+      }
+    } on ApiException catch (e) {
+      _showSnackBar(e.message, Colors.red);
+    } catch (e) {
+      _showSnackBar('Gagal Daftar Apple: $e', Colors.red);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   // --- DAFTAR VIA WHATSAPP (untuk tujuan register) ---
   Future<void> _handleWhatsAppRegister() async {
     // 1. Minta nomor HP
@@ -469,6 +547,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (phone == null || phone.isEmpty) return;
 
     // 2. Selesaikan verifikasi CAPTCHA (Cloudflare Turnstile) — sama seperti web.
+    if (!mounted) return;
     final turnstileToken = await showTurnstileDialog(
       context: context,
       title: 'Verifikasi CAPTCHA',
@@ -492,6 +571,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     // 4. Masukkan kode OTP
+    if (!mounted) return;
     final otpController = TextEditingController();
     final otp = await showDialog<String>(
       context: context,

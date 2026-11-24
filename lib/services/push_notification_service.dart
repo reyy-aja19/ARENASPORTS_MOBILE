@@ -20,6 +20,7 @@ class PushNotificationService {
       FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
   static dynamic _inboxSub;
+  static int? _currentUserId;
 
   static Future<void> init() async {
     if (_initialized) return;
@@ -44,6 +45,18 @@ class PushNotificationService {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     FirebaseMessaging.onMessage.listen((message) {
       showRemoteNotification(message);
+    });
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
+      final userId = _currentUserId;
+      if (userId == null) return;
+      try {
+        await FirebaseFirestore.instance.collection('users').doc('$userId').set({
+          'fcmToken': token,
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Gagal refresh FCM token: $e');
+      }
     });
 
     try {
@@ -151,6 +164,7 @@ class PushNotificationService {
   }
 
   static Future<void> saveTokenForUser(int userId) async {
+    _currentUserId = userId;
     try {
       final token = await FirebaseMessaging.instance.getToken();
       if (token == null) return;

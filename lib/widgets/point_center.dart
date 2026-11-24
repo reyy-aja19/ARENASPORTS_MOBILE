@@ -6,18 +6,10 @@ import '../services/session_service.dart';
 import '../utils/auth_guard.dart';
 import 'app_dialog.dart';
 import 'app_network_image.dart';
-import 'points_category_card.dart';
 
 /// Konten poin dan reward berbasis API Laravel.
 class PointCenter extends StatefulWidget {
-  const PointCenter({
-    super.key,
-    this.selectedCategory = 'Semua',
-    this.onCategoryChanged,
-  });
-
-  final String selectedCategory;
-  final ValueChanged<String>? onCategoryChanged;
+  const PointCenter({super.key});
 
   @override
   State<PointCenter> createState() => _PointCenterState();
@@ -26,19 +18,16 @@ class PointCenter extends StatefulWidget {
 class _PointCenterState extends State<PointCenter> {
   int _userPoints = 0;
   bool _isGuest = true;
-  String? _pointsError;
   List<Map<String, dynamic>> _rewards = const [];
   List<Map<String, dynamic>> _redemptions = const [];
   String? _rewardsError;
   bool _isLoading = true;
   bool _isProcessingRedeem = false;
   bool _isInitializing = false;
-  late String _category;
 
   @override
   void initState() {
     super.initState();
-    _category = widget.selectedCategory;
     SessionService.revision.addListener(_onSessionChanged);
     _initializeScreen();
   }
@@ -71,7 +60,6 @@ class _PointCenterState extends State<PointCenter> {
       setState(() {
         _isGuest = true;
         _userPoints = 0;
-        _pointsError = 'Login untuk melihat poin akun.';
         _rewardsError = 'Login untuk melihat dan menukar reward.';
         _isLoading = false;
       });
@@ -80,7 +68,6 @@ class _PointCenterState extends State<PointCenter> {
 
     setState(() {
       _isGuest = false;
-      _pointsError = null;
       _rewardsError = null;
       _isLoading = true;
     });
@@ -95,10 +82,10 @@ class _PointCenterState extends State<PointCenter> {
         _userPoints = data.points;
         _rewards = data.rewards;
         _redemptions = data.redemptions;
-        _pointsError = null;
         _rewardsError = null;
         _isLoading = false;
       });
+      await SessionService.updateUser({'points': data.points});
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -229,16 +216,8 @@ class _PointCenterState extends State<PointCenter> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        PointsCategoryCard(
-          points: _userPoints,
-          pointsError: _pointsError,
-          selectedCategory: _category,
-          onCategoryChanged: (value) {
-            setState(() => _category = value);
-            widget.onCategoryChanged?.call(value);
-          },
-        ),
-        const SizedBox(height: 18),
+        // Filter kategori dipindah ke Home.
+
         _buildPointsSummary(),
         const SizedBox(height: 18),
         Row(
@@ -526,56 +505,112 @@ class _PointCenterState extends State<PointCenter> {
     final status = redemption['status']?.toString() ?? '-';
     final redeemedAt = redemption['redeemed_at']?.toString();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FBF9),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.receipt_long, color: Color(0xFF00A32A)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  code,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    letterSpacing: 0.6,
-                    color: Color(0xFF007A2A),
-                  ),
-                ),
-                if (redeemedAt != null)
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => _showRedemptionQr(title, code),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FBF9),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.receipt_long, color: Color(0xFF00A32A)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    _formatDate(redeemedAt),
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
+                  Text(
+                    code,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      letterSpacing: 0.6,
+                      color: Color(0xFF007A2A),
+                    ),
+                  ),
+                  if (redeemedAt != null)
+                    Text(
+                      _formatDate(redeemedAt),
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    ),
+                ],
+              ),
+            ),
+            Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF7EE),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    status,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF007A2A),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Icon(Icons.qr_code_2, size: 18, color: Color(0xFF007A2A)),
               ],
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showRedemptionQr(String title, String code) {
+    if (code.isEmpty || code == '-') return;
+    showAppInfoDialog(
+      context,
+      title: 'QR Penukaran',
+      message: title,
+      icon: Icons.qr_code_2_rounded,
+      buttonLabel: 'Tutup',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             decoration: BoxDecoration(
               color: const Color(0xFFEAF7EE),
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFBFE5CB)),
             ),
             child: Text(
-              status,
+              code,
               style: const TextStyle(
-                fontSize: 10,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
                 color: Color(0xFF007A2A),
               ),
             ),
+          ),
+          const SizedBox(height: 15),
+          Image.network(
+            'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=$code',
+            height: 150,
+            width: 150,
+            errorBuilder: (c, e, s) => const Icon(Icons.qr_code, size: 100),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tunjukkan kode atau QR ini ke Admin Venue.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
           ),
         ],
       ),

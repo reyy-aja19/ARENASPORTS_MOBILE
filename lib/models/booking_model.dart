@@ -105,6 +105,7 @@ class BookingModel {
   final bool isPaid;
   final int? openMatchId;
   final bool hasReview;
+  final String? paymentProofUrl;
   final List<BookingExtensionModel> extensions;
 
   const BookingModel({
@@ -123,6 +124,7 @@ class BookingModel {
     this.isPaid = false,
     this.openMatchId,
     this.hasReview = false,
+    this.paymentProofUrl,
     this.extensions = const [],
   });
 
@@ -230,6 +232,15 @@ class BookingModel {
           ? null
           : _int(json['open_match_id']),
       hasReview: json['has_review'] == true,
+      paymentProofUrl: _string(json['payment_proof_url']) ??
+          _string(json['payment_proof']) ??
+          _string(json['proof_url']) ??
+          _string(json['bukti_pembayaran']) ??
+          (json['payment'] is Map
+              ? (_string((json['payment'] as Map)['payment_proof_url']) ??
+                  _string((json['payment'] as Map)['payment_proof']) ??
+                  _string((json['payment'] as Map)['proof_url']))
+              : null),
       extensions: (json['extensions'] as List? ?? [])
           .whereType<Map>()
           .map(

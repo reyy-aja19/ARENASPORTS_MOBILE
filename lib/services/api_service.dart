@@ -532,8 +532,11 @@ class ApiService {
       auth: false,
       body: {
         'message': message,
+        'prompt': message,
         'latitude': ?latitude,
         'longitude': ?longitude,
+        'lat': ?latitude,
+        'lng': ?longitude,
       },
     );
     return _map(data);

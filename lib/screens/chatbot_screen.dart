@@ -151,8 +151,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         longitude: _longitude,
       );
 
-      final reply = data['reply']?.toString().trim();
-      final courts = (data['courts'] as List? ?? [])
+      final reply = (data['reply'] ?? data['answer'] ?? data['message'] ?? data['response'])
+          ?.toString()
+          .trim();
+      final courtsRaw = data['courts'] ?? data['venues'] ?? data['data'];
+      final courts = (courtsRaw is List ? courtsRaw : const [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList();

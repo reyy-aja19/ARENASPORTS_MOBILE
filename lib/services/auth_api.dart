@@ -7,6 +7,7 @@ class AuthApi {
   static Future<Map<String, dynamic>> login({
     required String identifier,
     required String password,
+    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/login',
@@ -15,6 +16,8 @@ class AuthApi {
         'identifier': identifier.trim(),
         'password': password,
         'device_name': _deviceName,
+        if (turnstileToken != null && turnstileToken.isNotEmpty)
+          'cf-turnstile-response': turnstileToken,
       },
     );
     return _applySession(data);
@@ -49,6 +52,27 @@ class AuthApi {
       '/auth/google',
       auth: false,
       body: {'id_token': idToken, 'device_name': 'flutter-google'},
+    );
+    return _applySession(data);
+  }
+
+  static Future<Map<String, dynamic>> loginWithApple({
+    required String identityToken,
+    String? authorizationCode,
+    String? email,
+    String? name,
+  }) async {
+    final data = await ApiClient.instance.post(
+      '/auth/apple',
+      auth: false,
+      body: {
+        'identity_token': identityToken,
+        if (authorizationCode != null && authorizationCode.isNotEmpty)
+          'authorization_code': authorizationCode,
+        if (email != null && email.isNotEmpty) 'email': email,
+        if (name != null && name.isNotEmpty) 'name': name,
+        'device_name': 'flutter-apple',
+      },
     );
     return _applySession(data);
   }

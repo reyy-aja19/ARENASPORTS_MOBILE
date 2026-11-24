@@ -1,11 +1,15 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
 import '../models/match_model.dart';
 import '../services/match_api.dart';
 import '../services/session_service.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/guest_access_overlay.dart';
-import 'chat_screen.dart'; // FIX: Impor halaman chat baru agar bisa dipanggil
+import 'chat_screen.dart';
 
 class MatchScreen extends StatefulWidget {
   const MatchScreen({super.key});
@@ -18,6 +22,8 @@ class _MatchScreenState extends State<MatchScreen> {
   late Future<List<MatchModel>> futureMatches;
   bool _isGuest = true;
   bool _isCheckingSession = true;
+  bool _isRefreshing = false;
+  DateTime? _lastRefreshAt;
   Set<int> _joinedMatchIds = {};
   Set<int> _createdMatchIds = {};
   String _selectedEventType = 'open_match';
@@ -53,18 +59,14 @@ class _MatchScreenState extends State<MatchScreen> {
     setState(() {
       _isGuest = isGuest;
       _isCheckingSession = false;
-      if (!isGuest) futureMatches = MatchApi.fetchMatches();
+      if (!isGuest) futureMatches = _fetchMatches();
     });
-
-    if (!isGuest) _reloadMatchData();
   }
 
-  Future<void> _reloadMatchData() async {
-    try {
-      final feed = await MatchApi.fetchFeed();
-      if (!mounted) return;
+  Future<List<MatchModel>> _fetchMatches() async {
+    final feed = await MatchApi.fetchFeed();
+    if (mounted) {
       setState(() {
-        futureMatches = Future.value(feed.matches);
         _joinedMatchIds = feed.matches
             .where((match) => match.joined)
             .map((match) => match.id)
@@ -74,17 +76,35 @@ class _MatchScreenState extends State<MatchScreen> {
             .map((match) => match.id)
             .toSet();
       });
-    } catch (_) {
+    }
+    return feed.matches;
+  }
+
+  Future<void> _reloadMatchData({bool force = false}) async {
+    if (_isGuest || _isRefreshing) return;
+    final now = DateTime.now();
+    final last = _lastRefreshAt;
+    if (!force && last != null && now.difference(last) < const Duration(seconds: 5)) {
+      return;
+    }
+    _isRefreshing = true;
+    _lastRefreshAt = now;
+    try {
+      final matches = await _fetchMatches();
       if (!mounted) return;
       setState(() {
-        futureMatches = MatchApi.fetchMatches();
+        futureMatches = Future.value(matches);
       });
+    } catch (_) {
+      // Keep current UI state on transient refresh errors.
+    } finally {
+      _isRefreshing = false;
     }
   }
 
-  void _refreshData() {
+  void _refreshData({bool force = false}) {
     if (_isGuest) return;
-    _reloadMatchData();
+    _reloadMatchData(force: force);
   }
 
   DateTime? _eventDateTime(String date, String time) {
@@ -108,10 +128,18 @@ class _MatchScreenState extends State<MatchScreen> {
     return start != null && !DateTime.now().isBefore(start);
   }
 
+  bool _eventEnded(MatchModel event) {
+    final end = _eventDateTime(event.tanggal, event.endTime.isNotEmpty ? event.endTime : event.startTime);
+    return end != null && DateTime.now().isAfter(end);
+  }
+
   List<MatchModel> _filteredEvents(List<MatchModel> matches) {
-    return matches
-        .where((match) => match.eventType == _selectedEventType)
-        .toList();
+    return matches.where((match) {
+      if (match.eventType != _selectedEventType) return false;
+      // Open Match hilang setelah waktu booking berakhir
+      if (match.eventType == 'open_match' && _eventEnded(match)) return false;
+      return true;
+    }).toList();
   }
 
   Widget _buildEventTabs() {
@@ -170,6 +198,159 @@ class _MatchScreenState extends State<MatchScreen> {
     );
   }
 
+  Future<void> _openExternal(String? url) async {
+    final raw = (url ?? '').trim();
+    if (raw.isEmpty) return;
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _showMatchDetail(MatchModel match) async {
+    final embed = (match.googleMapsEmbedUrl ?? '').trim();
+    WebViewController? mapController;
+    if (embed.isNotEmpty) {
+      mapController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..loadRequest(Uri.parse(embed));
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.82,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (_, controller) => ListView(
+            controller: controller,
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            children: [
+              Center(child: Container(width: 42, height: 4, margin: const EdgeInsets.only(bottom: 16), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(99)))),
+              Text(match.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Text('${match.venueName.isNotEmpty ? match.venueName : "Venue"} • ${match.fieldName}', style: TextStyle(color: Colors.grey.shade700)),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _chip(match.isFree ? 'Gratis' : 'Rp ${match.biayaPerPemain ?? match.registrationFee} / pemain', match.isFree ? Colors.green : Colors.orange),
+                if (match.level.isNotEmpty) _chip(match.level, Colors.blue),
+                _chip('${match.jumlahBergabung}/${match.jumlahPemain} pemain', Colors.teal),
+              ]),
+              const SizedBox(height: 16),
+              _detailRow(Icons.calendar_today, '${match.tanggal} • ${match.startTime}-${match.endTime}'),
+              _detailRow(Icons.location_on_outlined, match.venueAddress.isNotEmpty ? match.venueAddress : 'Lokasi belum tersedia'),
+              _detailRow(Icons.sports, '${match.jenis} • ${match.fieldName}'),
+              _detailRow(Icons.person_outline, 'Host: ${match.organizer}'),
+              if (match.deskripsi.isNotEmpty) _detailRow(Icons.notes_outlined, match.deskripsi),
+              const SizedBox(height: 14),
+              if (mapController != null)
+                ClipRRect(borderRadius: BorderRadius.circular(14), child: SizedBox(height: 220, child: WebViewWidget(controller: mapController))),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(child: OutlinedButton.icon(onPressed: () => _openExternal(match.googleMapsUrl), icon: const Icon(Icons.map_outlined), label: const Text('Buka Maps'))),
+                const SizedBox(width: 10),
+                if (match.contactWhatsapp.isNotEmpty)
+                  Expanded(child: ElevatedButton.icon(onPressed: () => _openExternal('https://wa.me/${match.contactWhatsapp}'), icon: const Icon(Icons.chat), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366), foregroundColor: Colors.white), label: const Text('WhatsApp'))),
+              ]),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _chip(String text, MaterialColor color) {
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999)), child: Text(text, style: TextStyle(color: color.shade700, fontSize: 11, fontWeight: FontWeight.w700)));
+  }
+
+  Widget _detailRow(IconData icon, String text) {
+    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, size: 18, color: const Color(0xFF168653)), const SizedBox(width: 10), Expanded(child: Text(text, style: const TextStyle(height: 1.45)))]));
+  }
+
+  Future<void> _handleEventRegister(MatchModel match) async {
+    final teamCtrl = TextEditingController();
+    final captainCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final memberCtrl = TextEditingController(text: '5');
+    final notesCtrl = TextEditingController();
+    bool agree = false;
+
+    final submitted = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setModal) {
+        return Padding(
+          padding: EdgeInsets.only(left: 20, right: 20, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Center(child: Container(width: 42, height: 4, margin: const EdgeInsets.only(bottom: 14), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(99)))),
+              Text('Daftar ${match.title}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Text('Data tim disimpan, lalu kamu diarahkan ke WhatsApp penyelenggara.', style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+              const SizedBox(height: 14),
+              TextField(controller: teamCtrl, decoration: const InputDecoration(labelText: 'Nama Tim', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: captainCtrl, decoration: const InputDecoration(labelText: 'Nama Ketua Tim', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'WhatsApp Ketua', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: memberCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Jumlah Anggota', border: OutlineInputBorder())),
+              const SizedBox(height: 10),
+              TextField(controller: notesCtrl, maxLines: 2, decoration: const InputDecoration(labelText: 'Catatan (opsional)', border: OutlineInputBorder())),
+              CheckboxListTile(contentPadding: EdgeInsets.zero, value: agree, onChanged: (v) => setModal(() => agree = v ?? false),
+                title: const Text('Saya setuju data tim dibagikan ke penyelenggara dan lanjut konfirmasi via WhatsApp.', style: TextStyle(fontSize: 12))),
+              const SizedBox(height: 8),
+              SizedBox(width: double.infinity, height: 48, child: ElevatedButton(
+                onPressed: () {
+                  if (teamCtrl.text.trim().isEmpty || captainCtrl.text.trim().isEmpty || phoneCtrl.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nama tim, ketua, dan WhatsApp wajib diisi.')));
+                    return;
+                  }
+                  if (!agree) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Setujui ketentuan pendaftaran terlebih dahulu.')));
+                    return;
+                  }
+                  Navigator.pop(ctx, true);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF168653), foregroundColor: Colors.white),
+                child: const Text('Simpan & Lanjut WhatsApp'),
+              )),
+            ]),
+          ),
+        );
+      }),
+    );
+
+    if (submitted != true || !mounted) return;
+    showAppLoadingDialog(context, message: 'Mendaftarkan tim...');
+    final result = await MatchApi.registerEvent(
+      eventId: match.id,
+      teamName: teamCtrl.text.trim(),
+      captainName: captainCtrl.text.trim(),
+      captainPhone: phoneCtrl.text.trim(),
+      memberCount: int.tryParse(memberCtrl.text.trim()) ?? 1,
+      notes: notesCtrl.text.trim(),
+    );
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    if (!mounted) return;
+
+    final ok = result['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message']?.toString() ?? ''), backgroundColor: ok ? Colors.green : Colors.red));
+    if (ok) {
+      final wa = result['whatsapp_url']?.toString();
+      if (wa != null && wa.isNotEmpty) {
+        await _openExternal(wa);
+      }
+      _refreshData();
+    }
+  }
+
   Future<void> _handleJoin(MatchModel match) async {
     if (_joinedMatchIds.contains(match.id)) return;
 
@@ -184,8 +365,6 @@ class _MatchScreenState extends State<MatchScreen> {
     if (!confirmed || !mounted) return;
 
     ScaffoldMessenger.of(context).clearSnackBars();
-
-    // Tampilkan loading sebentar
     showAppLoadingDialog(context, message: 'Mendaftarkan kamu...');
 
     Map<String, dynamic> result;
@@ -201,31 +380,33 @@ class _MatchScreenState extends State<MatchScreen> {
 
     if (result['success'] == true) {
       setState(() => _joinedMatchIds = {..._joinedMatchIds, match.id});
+      final wa = result['whatsapp_url']?.toString();
+      final waUrl = (wa != null && wa.isNotEmpty)
+          ? wa
+          : (match.contactWhatsapp.isNotEmpty
+              ? 'https://wa.me/${match.contactWhatsapp}'
+              : '');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Anda berhasil bergabung ke open match "${match.title}" 🎉',
+            waUrl.isNotEmpty
+                ? 'Anda berhasil bergabung. Mengarahkan ke WhatsApp penyelenggara...'
+                : 'Anda berhasil bergabung ke open match "${match.title}".',
           ),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ),
       );
-      _refreshData(); // Refresh list agar jumlah pemain update otomatis
-    } else {
-      final message =
-          result['message']?.toString() ?? 'Gagal bergabung ke match.';
-      final alreadyJoined = message.toLowerCase().contains('sudah bergabung');
-
-      if (alreadyJoined) {
-        setState(() => _joinedMatchIds = {..._joinedMatchIds, match.id});
+      _refreshData();
+      if (waUrl.isNotEmpty) {
+        await _openExternal(waUrl);
       }
-
+    } else {
+      final message = result['message']?.toString() ?? 'Gagal bergabung ke match.';
+      final alreadyJoined = message.toLowerCase().contains('sudah bergabung');
+      if (alreadyJoined) setState(() => _joinedMatchIds = {..._joinedMatchIds, match.id});
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: alreadyJoined ? Colors.orange : Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
+        SnackBar(content: Text(message), backgroundColor: alreadyJoined ? Colors.orange : Colors.red, duration: const Duration(seconds: 3)),
       );
     }
   }
@@ -245,7 +426,7 @@ class _MatchScreenState extends State<MatchScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Color(0xFF00A32A)),
-            onPressed: _isGuest ? null : _refreshData,
+            onPressed: _isGuest ? null : () => _refreshData(force: true),
           ),
         ],
       ),
@@ -283,7 +464,7 @@ class _MatchScreenState extends State<MatchScreen> {
                                 const SizedBox(height: 10),
                                 Text("Waduh! ${snapshot.error}"),
                                 TextButton(
-                                  onPressed: _refreshData,
+                                  onPressed: () => _refreshData(force: true),
                                   child: const Text("Coba Lagi"),
                                 ),
                               ],
@@ -307,7 +488,7 @@ class _MatchScreenState extends State<MatchScreen> {
                         }
 
                         return RefreshIndicator(
-                          onRefresh: () async => _refreshData(),
+                          onRefresh: () async => _refreshData(force: true),
                           child: ListView.builder(
                             padding: const EdgeInsets.all(15),
                             itemCount: matches.length,
@@ -327,7 +508,7 @@ class _MatchScreenState extends State<MatchScreen> {
 
   Widget _matchCard(MatchModel match) {
     bool isFull = match.jumlahBergabung >= match.jumlahPemain;
-    bool isJoined = _joinedMatchIds.contains(match.id);
+    bool isJoined = _joinedMatchIds.contains(match.id) || (match.isTournament && match.isRegistered);
     bool isCreator = _createdMatchIds.contains(match.id);
     bool isStarted = _eventStarted(match);
     bool canChat = isJoined || isCreator;
@@ -454,7 +635,7 @@ class _MatchScreenState extends State<MatchScreen> {
                     child: ElevatedButton.icon(
                       onPressed: (isFull || isJoined || isCreator || isStarted)
                           ? null
-                          : () => _handleJoin(match),
+                          : () => match.isTournament ? _handleEventRegister(match) : _handleJoin(match),
                       icon: Icon(
                         isCreator
                             ? Icons.workspace_premium_rounded
@@ -469,18 +650,12 @@ class _MatchScreenState extends State<MatchScreen> {
                         isCreator
                             ? 'ANDA PEMBUAT MATCH'
                             : (isJoined
-                                  ? 'SUDAH BERGABUNG'
+                                  ? (match.isTournament ? 'SUDAH TERDAFTAR' : 'SUDAH BERGABUNG')
                                   : (isStarted
-                                        ? (match.isTournament
-                                              ? 'TURNAMEN SUDAH DIMULAI'
-                                              : 'MATCH SUDAH DIMULAI')
+                                        ? (match.isTournament ? 'TURNAMEN SUDAH DIMULAI' : 'MATCH SUDAH DIMULAI')
                                         : (isFull
-                                              ? (match.isTournament
-                                                    ? 'TURNAMEN PENUH'
-                                                    : 'MATCH PENUH')
-                                              : (match.isTournament
-                                                    ? 'DAFTAR TURNAMEN'
-                                                    : 'BERGABUNG DI MATCH')))),
+                                              ? (match.isTournament ? 'KUOTA PENUH' : 'MATCH PENUH')
+                                              : (match.isTournament ? 'DAFTAR TURNAMEN' : 'BERGABUNG DI MATCH')))),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF00A32A),
@@ -501,52 +676,95 @@ class _MatchScreenState extends State<MatchScreen> {
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (!canChat) {
-                          showAppInfoDialog(
-                            context,
-                            title: 'Belum Bergabung',
-                            message:
-                                'Gabung ke open match "${match.title}" dulu untuk masuk grup chat.',
-                            icon: Icons.lock_outline_rounded,
-                            accent: const Color(0xFFF59E0B),
-                          );
-                          return;
-                        }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChatScreen(
-                              matchId: match.id,
-                              matchTitle: match.title,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showMatchDetail(match),
+                      icon: const Icon(Icons.info_outline, size: 18),
+                      label: const Text('Detail & Lokasi'),
+                      style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF168653), side: const BorderSide(color: Color(0xFF168653))),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: match.isTournament
+                        ? ElevatedButton.icon(
+                            onPressed: () {
+                              if (!canChat) {
+                                showAppInfoDialog(
+                                  context,
+                                  title: 'Belum Bergabung',
+                                  message:
+                                      'Gabung ke turnamen "${match.title}" dulu untuk masuk grup chat.',
+                                  icon: Icons.lock_outline_rounded,
+                                  accent: const Color(0xFFF59E0B),
+                                );
+                                return;
+                              }
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ChatScreen(
+                                    matchId: match.id,
+                                    matchTitle: match.title,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: Icon(
+                              canChat
+                                  ? Icons.chat_bubble_outline
+                                  : Icons.lock_outline,
+                              size: 18,
+                            ),
+                            label: Text(
+                              canChat
+                                  ? "MASUK GRUP CHAT"
+                                  : "MASUK GRUP CHAT (BERGABUNG DULU)",
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: canChat
+                                  ? Colors.blue.shade700
+                                  : Colors.grey.shade400,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          )
+                        : ElevatedButton.icon(
+                            onPressed: () async {
+                              final waUrl = match.contactWhatsapp.isNotEmpty
+                                  ? 'https://wa.me/${match.contactWhatsapp}'
+                                  : '';
+                              if (waUrl.isEmpty) {
+                                showAppInfoDialog(
+                                  context,
+                                  title: 'WhatsApp Tidak Tersedia',
+                                  message:
+                                      'Nomor WhatsApp penyelenggara belum tersedia untuk open match ini.',
+                                  icon: Icons.info_outline_rounded,
+                                  accent: const Color(0xFFF59E0B),
+                                );
+                                return;
+                              }
+                              await _openExternal(waUrl);
+                            },
+                            icon: const Icon(Icons.chat, size: 18),
+                            label: const Text(
+                              "HUBUNGI PENYELENGGARA",
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                             ),
                           ),
-                        );
-                      },
-                      icon: Icon(
-                        canChat
-                            ? Icons.chat_bubble_outline
-                            : Icons.lock_outline,
-                        size: 18,
-                      ),
-                      label: Text(
-                        canChat
-                            ? "MASUK GRUP CHAT"
-                            : "MASUK GRUP CHAT (BERGABUNG DULU)",
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: canChat
-                            ? Colors.blue.shade700
-                            : Colors.grey.shade400,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -557,254 +775,6 @@ class _MatchScreenState extends State<MatchScreen> {
     );
   }
 
-  void _showMatchDetail(MatchModel match) {
-    final isFull = match.jumlahBergabung >= match.jumlahPemain;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-      ),
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) {
-          final isStarted = _eventStarted(match);
-          final isJoined = _joinedMatchIds.contains(match.id);
-          final isCreator = _createdMatchIds.contains(match.id);
-          final canChat = isJoined || isCreator;
-
-          return Padding(
-            padding: const EdgeInsets.all(25),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    match.title,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    match.jenis,
-                    style: const TextStyle(
-                      color: Color(0xFF00A32A),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _eventTypeBadge(match.eventType),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          match.organizer,
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (match.isTournament) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Biaya: ${match.registrationFee == 0 ? "GRATIS" : "Rp ${match.registrationFee}"}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    if (match.prize.isNotEmpty)
-                      Text(
-                        match.prize,
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                  ],
-                  const Divider(height: 30),
-                  _detailRow(
-                    Icons.stadium_outlined,
-                    "Lapangan",
-                    match.fieldName.isEmpty
-                        ? "Lapangan belum ditentukan"
-                        : match.fieldName,
-                  ),
-                  _detailRow(
-                    Icons.calendar_today,
-                    "Tanggal",
-                    match.tanggal.length >= 10
-                        ? match.tanggal.substring(0, 10)
-                        : match.tanggal,
-                  ),
-                  _detailRow(
-                    Icons.access_time,
-                    "Waktu",
-                    "${match.startTime} - ${match.endTime}",
-                  ),
-                  _detailRow(
-                    Icons.group,
-                    "Kebutuhan",
-                    "${match.jumlahBergabung} / ${match.jumlahPemain} Pemain",
-                  ),
-                  const SizedBox(height: 15),
-                  const Text(
-                    "Deskripsi",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    match.deskripsi.isEmpty
-                        ? "No Description"
-                        : match.deskripsi,
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 25),
-
-                  // Tombol bergabung / status sudah bergabung
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: (isJoined || isCreator || isFull || isStarted)
-                          ? null
-                          : () async {
-                              await _handleJoin(match);
-                              if (sheetContext.mounted) setSheetState(() {});
-                            },
-                      icon: Icon(
-                        isCreator
-                            ? Icons.workspace_premium_rounded
-                            : (isJoined
-                                  ? Icons.check_circle_outline
-                                  : (isStarted
-                                        ? Icons.block_rounded
-                                        : Icons.group_add_outlined)),
-                        size: 18,
-                      ),
-                      label: Text(
-                        isCreator
-                            ? 'ANDA PEMBUAT MATCH'
-                            : (isJoined
-                                  ? 'SUDAH BERGABUNG'
-                                  : (isStarted
-                                        ? (match.isTournament
-                                              ? 'TURNAMEN SUDAH DIMULAI'
-                                              : 'MATCH SUDAH DIMULAI')
-                                        : (isFull
-                                              ? (match.isTournament
-                                                    ? 'TURNAMEN PENUH'
-                                                    : 'MATCH PENUH')
-                                              : (match.isTournament
-                                                    ? 'DAFTAR TURNAMEN'
-                                                    : 'BERGABUNG DI MATCH')))),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00A32A),
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: (isJoined || isCreator)
-                            ? const Color(0xFF9E9E9E)
-                            : Colors.grey.shade300,
-                        disabledForegroundColor: (isJoined || isCreator)
-                            ? Colors.white
-                            : Colors.grey.shade600,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Tombol grup chat, hanya bisa dipakai jika sudah bergabung
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (!canChat) {
-                          showAppInfoDialog(
-                            sheetContext,
-                            title: 'Belum Bergabung',
-                            message:
-                                'Gabung ke open match "${match.title}" dulu untuk masuk grup chat.',
-                            icon: Icons.lock_outline_rounded,
-                            accent: const Color(0xFFF59E0B),
-                          );
-                          return;
-                        }
-
-                        final navigator = Navigator.of(sheetContext);
-                        navigator.pop();
-                        navigator.push(
-                          MaterialPageRoute(
-                            builder: (_) => ChatScreen(
-                              matchId: match.id,
-                              matchTitle: match.title,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: Icon(
-                        canChat
-                            ? Icons.chat_bubble_outline
-                            : Icons.lock_outline,
-                      ),
-                      label: Text(
-                        canChat
-                            ? "MASUK GRUP CHAT MATCH"
-                            : "MASUK GRUP CHAT (BERGABUNG DULU)",
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: canChat
-                            ? Colors.blue.shade700
-                            : Colors.grey.shade400,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _detailRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: Colors.grey),
-          const SizedBox(width: 12),
-          Text("$label: ", style: const TextStyle(fontWeight: FontWeight.w500)),
-          Text(value),
-        ],
-      ),
-    );
-  }
 
   Widget _buildStatusBadge(bool isFull, bool isStarted, MatchModel match) {
     final eventLabel = match.isTournament ? 'TURNAMEN' : 'OPEN MATCH';

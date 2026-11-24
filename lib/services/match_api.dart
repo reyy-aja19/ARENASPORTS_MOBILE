@@ -88,6 +88,10 @@ class MatchApi {
     required String title,
     required int jumlahPemain,
     String deskripsi = '',
+    String biayaMode = 'Gratis',
+    int? biayaPerPemain,
+    String level = '',
+    String contactPhone = '',
   }) async {
     final data = await ApiClient.instance.post(
       '/open-matches',
@@ -96,6 +100,10 @@ class MatchApi {
         'title': title,
         'jumlah_pemain': jumlahPemain,
         'deskripsi': deskripsi,
+        'biaya_mode': biayaMode,
+        'biaya_per_pemain': biayaPerPemain,
+        'level': level,
+        'contact_phone': contactPhone,
       },
     );
     final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -109,6 +117,53 @@ class MatchApi {
 
   /// Mengembalikan peta `{success, message, match}` agar layar bisa menampilkan
   /// pesan langsung dari server tanpa melempar error.
+  static Future<Map<String, dynamic>> registerEvent({
+    required int eventId,
+    required String teamName,
+    required String captainName,
+    required String captainPhone,
+    required int memberCount,
+    String notes = '',
+  }) async {
+    try {
+      final data = await ApiClient.instance.post(
+        '/events/$eventId/register',
+        body: {
+          'team_name': teamName,
+          'captain_name': captainName,
+          'captain_phone': captainPhone,
+          'member_count': memberCount,
+          'notes': notes,
+        },
+      );
+      final map =
+          data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      bumpData();
+      return {
+        'success': true,
+        'message': map['message']?.toString() ?? 'Pendaftaran tim berhasil disimpan.',
+        'event': map['event'] is Map
+            ? MatchModel.fromJson(Map<String, dynamic>.from(map['event'] as Map))
+            : null,
+        'whatsapp_url': map['whatsapp_url']?.toString(),
+      };
+    } on ApiException catch (error) {
+      return {
+        'success': false,
+        'message': error.message,
+        'event': null,
+        'whatsapp_url': null,
+      };
+    } catch (_) {
+      return {
+        'success': false,
+        'message': 'Gagal mendaftarkan tim. Periksa koneksi.',
+        'event': null,
+        'whatsapp_url': null,
+      };
+    }
+  }
+
   static Future<Map<String, dynamic>> joinMatch(int matchId) async {
     try {
       final data = await ApiClient.instance.post('/open-matches/$matchId/join');
@@ -118,9 +173,14 @@ class MatchApi {
         'success': true,
         'message': 'Berhasil bergabung ke Open Match.',
         'match': map['match'],
+        'whatsapp_url': map['whatsapp_url']?.toString(),
       };
     } on ApiException catch (error) {
-      return {'success': false, 'message': error.message};
+      return {
+        'success': false,
+        'message': error.message,
+        'whatsapp_url': null,
+      };
     }
   }
 

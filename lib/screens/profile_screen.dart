@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/api_service.dart';
 import '../services/auth_api.dart';
+import '../services/pin_service.dart';
 import '../services/session_service.dart';
 import '../widgets/app_dialog.dart';
 import '../widgets/photo_gallery_screen.dart';
@@ -41,7 +42,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_isFetching) return;
     _isFetching = true;
     try {
-      await _loadProfile();
+      await _loadProfile().timeout(const Duration(seconds: 15));
+    } catch (_) {
+      if (mounted && _isLoading) {
+        setState(() {
+          _isLoading = false;
+          _loadError ??= 'Gagal memuat profil. Tarik untuk mencoba lagi.';
+        });
+      }
     } finally {
       _isFetching = false;
     }
@@ -56,15 +64,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isGuest = true;
         _isLoading = false;
         _loadError = null;
+        _biometricsEnabled = false;
       });
       return;
     }
 
     final cached = await SessionService.currentUser();
+    bool bioEnabled = false;
+    try {
+      bioEnabled = await PinService.instance
+          .isBiometricEnabled()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       if (cached != null) userData = cached;
       _isGuest = false;
+      _biometricsEnabled = bioEnabled;
       // Data cache langsung ditampilkan supaya halaman tidak berkedip kosong.
       _isLoading = false;
     });
@@ -210,7 +226,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
-                            'My Profile',
+                            'Profile Saya',
                             style: TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
@@ -406,11 +422,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         _buildListTileItem(
                           icon: Icons.lock_outline_rounded,
                           title: 'Change Pin / Security',
-                          onTap: () {
-                            _showSnackBar(
-                              'Keamanan akun dikelola melalui password & OTP',
-                              const Color(0xFF3B82F6),
-                            );
+                          onTap: () async {
+                            await Navigator.pushNamed(context, '/change-pin');
                           },
                         ),
                         _buildDivider(),
@@ -418,16 +431,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           icon: Icons.fingerprint_rounded,
                           title: 'Enable Biometrics',
                           value: _biometricsEnabled,
-                          onChanged: (val) {
-                            setState(() {
-                              _biometricsEnabled = val;
-                            });
-                            _showSnackBar(
-                              val
-                                  ? 'Fitur biometrik diaktifkan'
-                                  : 'Fitur biometrik dinonaktifkan',
-                              const Color(0xFF00A32A),
-                            );
+                          onChanged: (val) async {
+                            if (val) {
+                              final canUse = await PinService.instance.canUseBiometrics();
+                              if (!canUse) {
+                                _showSnackBar(
+                                  'Biometrik tidak tersedia di perangkat ini.',
+                                  Colors.orange,
+                                );
+                                return;
+                              }
+                              final ok = await PinService.instance.authenticate(
+                                reason: 'Verifikasi untuk mengaktifkan biometrik',
+                              );
+                              if (!ok) {
+                                _showSnackBar(
+                                  'Verifikasi biometrik gagal.',
+                                  Colors.red,
+                                );
+                                return;
+                              }
+                              await PinService.instance.setBiometricEnabled(true);
+                              if (!mounted) return;
+                              setState(() => _biometricsEnabled = true);
+                              _showSnackBar(
+                                'Fitur biometrik diaktifkan',
+                                const Color(0xFF00A32A),
+                              );
+                            } else {
+                              await PinService.instance.setBiometricEnabled(false);
+                              if (!mounted) return;
+                              setState(() => _biometricsEnabled = false);
+                              _showSnackBar(
+                                'Fitur biometrik dinonaktifkan',
+                                const Color(0xFF00A32A),
+                              );
+                            }
                           },
                         ),
                       ]),

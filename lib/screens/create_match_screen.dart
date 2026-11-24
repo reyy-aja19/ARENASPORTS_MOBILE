@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../models/booking_model.dart';
 import '../services/api_client.dart';
@@ -18,20 +19,45 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _jmlPemainController = TextEditingController(text: '10');
+  final _biayaController = TextEditingController();
+  final _contactController = TextEditingController();
   final _descController = TextEditingController();
 
   BookingModel? _selectedBooking;
   List<BookingModel> _eligibleBookings = const [];
   bool _isLoadingBookings = false;
+  bool _isSubmitting = false;
   String? _loadError;
+  String _biayaMode = 'Gratis';
+  String _level = 'Santai';
+
+  final NumberFormat _idr = NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp ',
+    decimalDigits: 0,
+  );
 
   @override
   void initState() {
     super.initState();
     _selectedBooking = widget.booking;
+    _jmlPemainController.addListener(_syncSuggestedCost);
     if (_selectedBooking == null) {
       _loadEligibleBookings();
+    } else {
+      _syncSuggestedCost();
     }
+  }
+
+  @override
+  void dispose() {
+    _jmlPemainController.removeListener(_syncSuggestedCost);
+    _titleController.dispose();
+    _jmlPemainController.dispose();
+    _biayaController.dispose();
+    _contactController.dispose();
+    _descController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEligibleBookings() async {
@@ -47,6 +73,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         _selectedBooking = bookings.isNotEmpty ? bookings.first : null;
         _isLoadingBookings = false;
       });
+      _syncSuggestedCost();
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -56,36 +83,45 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     }
   }
 
-  IconData _sportIcon(String type) {
-    final value = type.toLowerCase();
-    if (value.contains('badminton') || value.contains('tenis')) {
-      return Icons.sports_tennis;
+  int get _suggestedCost {
+    final booking = _selectedBooking;
+    final players = int.tryParse(_jmlPemainController.text.trim()) ?? 0;
+    if (booking == null || players <= 0) return 0;
+    final total = booking.totalPrice;
+    if (total <= 0) return 0;
+    return (total / players).ceil();
+  }
+
+  void _syncSuggestedCost() {
+    if (_biayaMode != 'Patungan') return;
+    final suggestion = _suggestedCost;
+    if (suggestion > 0 && _biayaController.text.trim().isEmpty) {
+      _biayaController.text = suggestion.toString();
     }
-    if (value.contains('basket')) return Icons.sports_basketball;
-    if (value.contains('voli')) return Icons.sports_volleyball;
-    return Icons.sports_soccer;
+    if (mounted) setState(() {});
   }
 
   InputDecoration _inputDecoration(
     String label,
     IconData icon, {
     bool enabled = true,
-  }) => InputDecoration(
-    labelText: label,
-    prefixIcon: Icon(icon, color: enabled ? Colors.green : Colors.grey),
-    fillColor: enabled ? Colors.white : Colors.grey.shade100,
-    filled: !enabled,
-    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(
-        color: enabled ? Colors.green : Colors.grey,
-        width: 2,
-      ),
-    ),
-  );
+    String? hint,
+  }) =>
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: enabled ? Colors.green : Colors.grey),
+        fillColor: enabled ? Colors.white : Colors.grey.shade100,
+        filled: true,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.green, width: 2),
+        ),
+      );
 
   Future<void> _submitData() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
     final booking = _selectedBooking;
     if (booking == null) {
@@ -98,6 +134,20 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
+    final biaya = _biayaMode == 'Patungan'
+        ? int.tryParse(_biayaController.text.trim())
+        : null;
+    if (_biayaMode == 'Patungan' && (biaya == null || biaya <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Masukkan biaya patungan per pemain.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
     showAppLoadingDialog(context, message: 'Membuat open match...');
 
     try {
@@ -106,13 +156,17 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         title: _titleController.text.trim(),
         jumlahPemain: int.parse(_jmlPemainController.text.trim()),
         deskripsi: _descController.text.trim(),
+        biayaMode: _biayaMode,
+        biayaPerPemain: biaya,
+        level: _level,
+        contactPhone: _contactController.text.trim(),
       );
 
       if (!mounted) return;
-      Navigator.pop(context); // tutup loading
+      Navigator.pop(context); // loading
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Match Berhasil Dibuat!"),
+          content: Text('Match Berhasil Dibuat!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -132,25 +186,69 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
           backgroundColor: Colors.red,
         ),
       );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  Widget _bookingPreview(BookingModel booking) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4FAF6),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDCEBE2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Detail Booking',
+            style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF14532D)),
+          ),
+          const SizedBox(height: 10),
+          _previewRow(Icons.storefront, booking.venueName),
+          _previewRow(Icons.sports_soccer, '${booking.courtName} • ${booking.court?.type ?? '-'}'),
+          _previewRow(Icons.location_on_outlined, booking.venueAddress.isNotEmpty ? booking.venueAddress : 'Alamat venue belum tersedia'),
+          _previewRow(Icons.calendar_today, '${booking.bookingDate} • ${booking.startTime}-${booking.endTime}'),
+          _previewRow(Icons.payments_outlined, 'Total booking: ${_idr.format(booking.totalPrice)}'),
+          if (_biayaMode == 'Patungan' && _suggestedCost > 0)
+            _previewRow(Icons.groups_outlined, 'Saran patungan: ${_idr.format(_suggestedCost)} / pemain'),
+        ],
+      ),
+    );
+  }
+
+  Widget _previewRow(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF168653)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF4D6658), height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final booking = _selectedBooking;
-    final jenis = booking?.court?.type ?? 'Futsal';
-    final date = booking?.bookingDate ?? '-';
-    final start = booking?.startTime ?? '-';
-    final end = booking?.endTime ?? '-';
-    final venue = booking == null
-        ? 'Pilih booking terlebih dahulu'
-        : '${booking.venueName} • ${booking.courtName}';
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          "Buat Match Baru",
+          'Buat Match Baru',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         elevation: 0,
@@ -158,47 +256,26 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         foregroundColor: Colors.black,
       ),
       body: (_isLoadingBookings && widget.booking == null)
-          ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00A32A)),
-            )
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF00A32A)))
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(20),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            "Detail Pertandingan",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Muat ulang booking',
-                          onPressed: widget.booking == null
-                              ? _loadEligibleBookings
-                              : null,
-                          icon: const Icon(
-                            Icons.refresh,
-                            color: Color(0xFF00A32A),
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      'Detail Open Match',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
                     ),
+                    const SizedBox(height: 12),
+
                     if (widget.booking == null) ...[
-                      const SizedBox(height: 10),
                       if (_loadError != null)
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(_loadError!),
+                            Text(_loadError!, style: const TextStyle(color: Colors.red)),
                             TextButton.icon(
                               onPressed: _loadEligibleBookings,
                               icon: const Icon(Icons.refresh),
@@ -207,24 +284,30 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                           ],
                         )
                       else if (_eligibleBookings.isEmpty)
-                        const Text(
-                          'Tidak ada booking aktif yang bisa dijadikan Open Match. '
-                          'Pastikan booking sudah DP/Lunas dan belum dimulai.',
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF8E1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFF2DFB3)),
+                          ),
+                          child: const Text(
+                            'Tidak ada booking aktif yang bisa dijadikan Open Match. Pastikan booking sudah DP/Lunas dan belum dimulai.',
+                            style: TextStyle(color: Color(0xFF805A12)),
+                          ),
                         )
                       else
                         DropdownButtonFormField<BookingModel>(
-                          initialValue: _selectedBooking,
-                          decoration: _inputDecoration(
-                            "Pilih Booking",
-                            Icons.event_available_outlined,
-                          ),
+                          value: _selectedBooking,
+                          isExpanded: true,
+                          decoration: _inputDecoration('Pilih Booking', Icons.event_available_outlined),
                           items: _eligibleBookings
                               .map(
                                 (item) => DropdownMenuItem(
                                   value: item,
                                   child: Text(
-                                    '${item.courtName} • ${item.bookingDate} '
-                                    '${item.startTime}',
+                                    '${item.courtName} • ${item.bookingDate} ${item.startTime}',
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -233,130 +316,138 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                           onChanged: (value) {
                             setState(() {
                               _selectedBooking = value;
+                              _biayaController.clear();
                             });
+                            _syncSuggestedCost();
                           },
-                          validator: (value) => value == null
-                              ? 'Pilih booking terlebih dahulu'
-                              : null,
+                          validator: (value) => value == null ? 'Pilih booking terlebih dahulu' : null,
                         ),
                       const SizedBox(height: 15),
                     ],
+
+                    if (booking != null) _bookingPreview(booking),
+
                     TextFormField(
                       controller: _titleController,
-                      decoration: _inputDecoration("Judul Match", Icons.title),
-                      validator: (v) => v == null || v.trim().isEmpty
-                          ? "Isi judul match terlebih dahulu"
-                          : null,
+                      decoration: _inputDecoration('Judul Match', Icons.title, hint: 'Contoh: Fun futsal malam ini'),
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Isi judul match terlebih dahulu' : null,
                     ),
                     const SizedBox(height: 15),
-                    TextFormField(
-                      key: ValueKey(venue),
-                      initialValue: venue,
-                      readOnly: true,
-                      decoration: _inputDecoration(
-                        "Lapangan",
-                        Icons.stadium_outlined,
-                        enabled: false,
-                      ),
-                    ),
-                    const SizedBox(height: 15),
-                    TextFormField(
-                      key: ValueKey(jenis),
-                      initialValue: jenis,
-                      readOnly: true,
-                      decoration: _inputDecoration(
-                        "Jenis Olahraga",
-                        _sportIcon(jenis),
-                        enabled: false,
-                      ),
-                    ),
-                    const SizedBox(height: 15),
+
                     TextFormField(
                       controller: _jmlPemainController,
                       keyboardType: TextInputType.number,
-                      decoration: _inputDecoration(
-                        "Maksimal Pemain (2-99)",
-                        Icons.groups,
-                      ),
+                      decoration: _inputDecoration('Target Total Pemain (termasuk host)', Icons.groups),
                       validator: (v) {
                         final value = int.tryParse(v?.trim() ?? '');
-                        if (value == null) return "Masukkan angka yang valid";
-                        if (value < 2 || value > 99) {
-                          return "Jumlah pemain harus 2 sampai 99";
-                        }
+                        if (value == null) return 'Masukkan angka yang valid';
+                        if (value < 2 || value > 99) return 'Jumlah pemain harus 2 sampai 99';
                         return null;
                       },
                     ),
                     const SizedBox(height: 15),
-                    TextFormField(
-                      controller: _descController,
-                      maxLines: 3,
-                      decoration: _inputDecoration(
-                        "Deskripsi Tambahan / Catatan",
-                        Icons.description,
-                      ),
+
+                    DropdownButtonFormField<String>(
+                      value: _level,
+                      decoration: _inputDecoration('Level Permainan', Icons.signal_cellular_alt),
+                      items: const ['Santai', 'Pemula', 'Menengah', 'Mahir', 'Kompetitif']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (value) => setState(() => _level = value ?? 'Santai'),
                     ),
                     const SizedBox(height: 15),
-                    TextFormField(
-                      key: ValueKey('tanggal_$date'),
-                      initialValue: "Tanggal Main: $date",
-                      readOnly: true,
-                      decoration: _inputDecoration(
-                        "Tanggal",
-                        Icons.calendar_today,
-                        enabled: false,
-                      ),
-                    ),
-                    const SizedBox(height: 15),
+
+                    const Text('Biaya Bermain', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
-                          child: TextFormField(
-                            key: ValueKey('start_$start'),
-                            initialValue: start,
-                            readOnly: true,
-                            decoration: _inputDecoration(
-                              "Mulai",
-                              Icons.access_time,
-                              enabled: false,
-                            ),
+                          child: RadioListTile<String>(
+                            value: 'Gratis',
+                            groupValue: _biayaMode,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Gratis'),
+                            onChanged: (value) => setState(() {
+                              _biayaMode = value ?? 'Gratis';
+                              _biayaController.clear();
+                            }),
                           ),
                         ),
-                        const SizedBox(width: 15),
                         Expanded(
-                          child: TextFormField(
-                            key: ValueKey('end_$end'),
-                            initialValue: end,
-                            readOnly: true,
-                            decoration: _inputDecoration(
-                              "Selesai",
-                              Icons.access_time,
-                              enabled: false,
-                            ),
+                          child: RadioListTile<String>(
+                            value: 'Patungan',
+                            groupValue: _biayaMode,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Patungan'),
+                            onChanged: (value) => setState(() {
+                              _biayaMode = value ?? 'Patungan';
+                              _syncSuggestedCost();
+                            }),
                           ),
                         ),
                       ],
                     ),
+
+                    if (_biayaMode == 'Patungan') ...[
+                      TextFormField(
+                        controller: _biayaController,
+                        keyboardType: TextInputType.number,
+                        decoration: _inputDecoration(
+                          'Biaya per Pemain',
+                          Icons.payments_outlined,
+                          hint: _suggestedCost > 0 ? _suggestedCost.toString() : 'Contoh: 50000',
+                        ),
+                        validator: (v) {
+                          if (_biayaMode != 'Patungan') return null;
+                          final value = int.tryParse(v?.trim() ?? '');
+                          if (value == null || value <= 0) return 'Masukkan nominal patungan';
+                          return null;
+                        },
+                      ),
+                      if (_suggestedCost > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Saran otomatis: ${_idr.format(_suggestedCost)} / pemain dari total booking.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                          ),
+                        ),
+                      const SizedBox(height: 15),
+                    ] else
+                      const SizedBox(height: 8),
+
+                    TextFormField(
+                      controller: _contactController,
+                      keyboardType: TextInputType.phone,
+                      decoration: _inputDecoration('WhatsApp Host (opsional)', Icons.phone_outlined, hint: '08xxxxxxxxxx'),
+                    ),
+                    const SizedBox(height: 15),
+
+                    TextFormField(
+                      controller: _descController,
+                      maxLines: 3,
+                      decoration: _inputDecoration(
+                        'Deskripsi / Aturan',
+                        Icons.description_outlined,
+                        hint: 'Level, aturan, biaya bayar di venue, datang 15 menit lebih awal...',
+                      ),
+                    ),
                     const SizedBox(height: 24),
+
                     SizedBox(
                       width: double.infinity,
                       height: 55,
                       child: ElevatedButton(
-                        onPressed: _submitData,
+                        onPressed: _isSubmitting ? null : _submitData,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           elevation: 3,
                         ),
-                        child: const Text(
-                          "SIMPAN MATCH",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        child: Text(
+                          _isSubmitting ? 'MENYIMPAN...' : 'SIMPAN MATCH',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
@@ -365,13 +456,5 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
               ),
             ),
     );
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _jmlPemainController.dispose();
-    _descController.dispose();
-    super.dispose();
   }
 }

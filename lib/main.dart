@@ -7,6 +7,7 @@ import 'screens/home_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/change_password_screen.dart';
+import 'screens/change_pin_screen.dart';
 import 'screens/terms_screen.dart';
 import 'screens/privacy_screen.dart';
 import 'screens/request_admin_screen.dart';
@@ -84,6 +85,7 @@ class SportsFieldApp extends StatelessWidget {
         '/request-admin': (context) => const RequestAdminScreen(),
         '/settings': (context) => const SettingsScreen(),
         '/change-password': (context) => const ChangePasswordScreen(),
+        '/change-pin': (context) => const ChangePinScreen(),
         '/terms': (context) => const TermsScreen(),
         '/privacy': (context) => const PrivacyScreen(),
         '/chatbot': (context) => const ChatbotScreen(),
@@ -102,27 +104,31 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _index = 2; // Default ke Home (index ke-2)
+  late final List<Widget> _pages;
 
   @override
-  Widget build(BuildContext context) {
-    final pages = [
+  void initState() {
+    super.initState();
+    _pages = [
       const HistoryScreen(),
       const MatchScreen(),
-      HomeScreen(
-        onProfileTap: () {
-          setState(() {
-            _index = 4; // Berpindah ke tab Profil
-          });
-        },
-      ),
+      HomeScreen(onProfileTap: _goToProfile),
       const PointScreen(),
       const ProfileScreen(),
     ];
+  }
 
+  void _goToProfile() {
+    if (!mounted) return;
+    setState(() => _index = 4);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          IndexedStack(index: _index, children: pages),
+          IndexedStack(index: _index, children: _pages),
           Positioned(
             bottom:
                 kBottomNavigationBarHeight +

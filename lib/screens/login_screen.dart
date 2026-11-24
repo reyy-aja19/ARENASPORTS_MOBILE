@@ -1,9 +1,14 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_api.dart';
+import '../services/pin_service.dart';
+import '../services/session_service.dart';
 import '../widgets/turnstile_widget.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -18,6 +23,32 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _passwordVisible = false;
+  bool _quickLoginChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _tryQuickLogin());
+  }
+
+  Future<void> _tryQuickLogin() async {
+    if (_quickLoginChecked || !mounted) return;
+    _quickLoginChecked = true;
+
+    final loggedIn = await SessionService.isLoggedIn();
+    final bioEnabled = await PinService.instance.isBiometricEnabled();
+    if (!mounted || !loggedIn || !bioEnabled) return;
+
+    final canUse = await PinService.instance.canUseBiometrics();
+    if (!mounted || !canUse) return;
+
+    final ok = await PinService.instance.authenticate(
+      reason: 'Gunakan biometrik untuk masuk cepat',
+    );
+    if (!mounted || !ok) return;
+
+    Navigator.pushReplacementNamed(context, '/home');
+  }
 
   // --- LOGIN EMAIL / NOMOR HP ---
   Future<void> _handleLoginManual() async {
@@ -29,10 +60,20 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    final turnstileToken = await showTurnstileDialog(
+      context: context,
+      title: 'Verifikasi CAPTCHA',
+    );
+    if (turnstileToken == null || !mounted) return;
+
     setState(() => _isLoading = true);
 
     try {
-      await AuthApi.login(identifier: email, password: password);
+      await AuthApi.login(
+        identifier: email,
+        password: password,
+        turnstileToken: turnstileToken,
+      );
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
@@ -85,6 +126,54 @@ class _LoginScreenState extends State<LoginScreen> {
       _showSnackBar(e.message, Colors.red);
     } catch (e) {
       _showSnackBar("Gagal Login Google: $e", Colors.red);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- LOGIN APPLE ---
+  Future<void> _handleAppleSignIn() async {
+    if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) {
+      _showSnackBar('Login Apple tidak didukung di perangkat ini.', Colors.orange);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      final identityToken = credential.identityToken;
+      if (identityToken == null || identityToken.isEmpty) {
+        throw const ApiException('Token Apple tidak tersedia. Coba lagi.');
+      }
+
+      final givenName = (credential.givenName ?? '').trim();
+      final familyName = (credential.familyName ?? '').trim();
+      final fullName = [givenName, familyName].where((e) => e.isNotEmpty).join(' ');
+
+      await AuthApi.loginWithApple(
+        identityToken: identityToken,
+        authorizationCode: credential.authorizationCode,
+        email: credential.email,
+        name: fullName.isNotEmpty ? fullName : null,
+      );
+
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code != AuthorizationErrorCode.canceled) {
+        _showSnackBar('Gagal Login Apple: ${e.message}', Colors.red);
+      }
+    } on ApiException catch (e) {
+      _showSnackBar(e.message, Colors.red);
+    } catch (e) {
+      _showSnackBar('Gagal Login Apple: $e', Colors.red);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -164,6 +253,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (phone == null || phone.isEmpty) return;
 
     // 2. Selesaikan verifikasi CAPTCHA (Cloudflare Turnstile) — sama seperti web.
+    if (!mounted) return;
     final turnstileToken = await showTurnstileDialog(
       context: context,
       title: 'Verifikasi CAPTCHA',
@@ -185,6 +275,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     // 4. Masukkan kode OTP
+    if (!mounted) return;
     final otpController = TextEditingController();
     final otp = await showDialog<String>(
       context: context,
@@ -379,6 +470,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 14),
           _googleButton(),
           const SizedBox(height: 10),
+          _appleButton(),
+          const SizedBox(height: 10),
           _whatsAppButton(),
           const SizedBox(height: 26),
           Row(
@@ -496,6 +589,33 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(width: 10),
           const Text(
             'Masuk Dengan Google',
+            style: TextStyle(
+              color: Colors.black87,
+              fontWeight: FontWeight.bold,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _appleButton() {
+    return OutlinedButton(
+      onPressed: _isLoading ? null : _handleAppleSignIn,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        side: const BorderSide(color: Color(0xFF111827)),
+        backgroundColor: Colors.white,
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.apple, color: Colors.black, size: 24),
+          SizedBox(width: 10),
+          Text(
+            'Masuk Dengan Apple',
             style: TextStyle(
               color: Colors.black87,
               fontWeight: FontWeight.bold,

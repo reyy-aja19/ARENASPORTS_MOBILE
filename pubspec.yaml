@@ -36,6 +36,7 @@ dependencies:
   http: ^0.13.5
   flutter_svg: ^2.0.9
   intl: ^0.19.0
+  url_launcher: ^6.3.1
   font_awesome_flutter: ^10.7.0
 
   # --- FIREBASE & AUTHENTICATION ---
@@ -45,6 +46,8 @@ dependencies:
   firebase_auth: ^5.0.0
   # Library khusus untuk tombol "Masuk Dengan Google" (image_e9c6e4.png)
   google_sign_in: ^6.2.1
+  # Sign in with Apple
+  sign_in_with_apple: ^6.1.4
 
   cloud_firestore: ^5.0.0
   
@@ -58,6 +61,8 @@ dependencies:
   geocoding: ^5.0.1
   firebase_messaging: ^15.0.0
   flutter_local_notifications: ^18.0.0
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^9.2.4
 
 dev_dependencies:
   flutter_test:
@@ -85,6 +90,7 @@ flutter:
     # Gunakan dua spasi lagi di bawah assets:
     - assets/images/logo_google.png
     - assets/images/arenasports_icon.png
+    - assets/images/carousel/
 
 flutter_launcher_icons:
   android: true

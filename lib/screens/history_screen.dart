@@ -27,7 +27,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
   late Future<List<BookingModel>> _historyFuture;
   bool _isGuest = true;
   bool _isCheckingSession = true;
+  bool _isRefreshing = false;
+  DateTime? _lastRefreshAt;
   Timer? _statusTicker;
+  String _statusFilter = 'semua';
 
   @override
   void initState() {
@@ -46,12 +49,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   void _onMatchDataChanged() {
     if (!mounted || _isGuest) return;
-    _refreshData();
+    _refreshData(force: true);
   }
 
   void _onSessionChanged() {
     if (!mounted) return;
-    _loadSession();
+    _handleSessionChange();
+  }
+
+  Future<void> _handleSessionChange() async {
+    final loggedIn = await SessionService.isLoggedIn();
+    if (!mounted) return;
+    if (!loggedIn) {
+      setState(() {
+        _isGuest = true;
+        _isCheckingSession = false;
+      });
+      return;
+    }
+    if (_isGuest) {
+      setState(() {
+        _isGuest = false;
+        _isCheckingSession = false;
+      });
+    }
+    _refreshData(force: true);
   }
 
   @override
@@ -72,108 +94,148 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
-  Future<void> _refreshData() async {
-    if (_isGuest) return;
-    setState(() {
-      _historyFuture = ApiService.instance.bookings();
-    });
+  Future<void> _refreshData({bool force = false}) async {
+    if (_isGuest || _isRefreshing) return;
+    final now = DateTime.now();
+    final last = _lastRefreshAt;
+    if (!force && last != null && now.difference(last) < const Duration(seconds: 5)) {
+      return;
+    }
+    _isRefreshing = true;
+    _lastRefreshAt = now;
+    try {
+      final future = ApiService.instance.bookings();
+      if (mounted) {
+        setState(() {
+          _historyFuture = future;
+        });
+      }
+      await future;
+    } catch (_) {
+      // Error ditampilkan oleh FutureBuilder.
+    } finally {
+      _isRefreshing = false;
+    }
+  }
+
+  List<BookingModel> _filteredBookings(List<BookingModel> all) {
+    if (_statusFilter == 'semua') return all;
+    return all.where((b) {
+      final s = b.effectiveStatus.toLowerCase();
+      switch (_statusFilter) {
+        case 'menunggu':
+          return s == 'menunggu' || s == 'dp' || s == 'pending';
+        case 'lunas':
+          return s == 'lunas' || s == 'settlement' || s == 'capture' || s == 'success' || s == 'paid';
+        case 'selesai':
+          return s == 'selesai' || s == 'completed';
+        case 'dibatalkan':
+          return s == 'dibatalkan' || s == 'batal' || s == 'expired' || s == 'cancelled';
+        default:
+          return true;
+      }
+    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF8F9FA),
-        appBar: AppBar(
-          title: const Text("Riwayat Sewa"),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          actions: [
-            IconButton(
-              onPressed: _isGuest ? null : _refreshData,
-              icon: const Icon(Icons.refresh),
-            ),
-          ],
-          bottom: const TabBar(
-            labelColor: Colors.green,
-            unselectedLabelColor: Colors.black54,
-            indicatorColor: Colors.green,
-            tabs: [
-              Tab(text: "Aktif"),
-              Tab(text: "Selesai"),
-            ],
+    const filters = [
+      ('semua', 'Semua'),
+      ('menunggu', 'Menunggu'),
+      ('lunas', 'Lunas'),
+      ('selesai', 'Selesai'),
+      ('dibatalkan', 'Dibatalkan'),
+    ];
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      appBar: AppBar(
+        title: const Text("Booking Saya"),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        actions: [
+          IconButton(
+            onPressed: _isGuest ? null : () => _refreshData(force: true),
+            icon: const Icon(Icons.refresh),
           ),
-        ),
-        body: _isCheckingSession
-            ? const Center(child: CircularProgressIndicator())
-            : GuestAccessOverlay(
-                isGuest: _isGuest,
-                message: 'Login untuk melihat riwayat sewa.',
-                child: FutureBuilder<List<BookingModel>>(
-                  future: _historyFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError) {
-                      final error = snapshot.error;
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                error is ApiException
-                                    ? error.message
-                                    : 'Gagal memuat data: $error',
-                                textAlign: TextAlign.center,
-                              ),
-                              TextButton.icon(
-                                onPressed: _refreshData,
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Coba Lagi'),
-                              ),
-                            ],
-                          ),
+        ],
+      ),
+      body: _isCheckingSession
+          ? const Center(child: CircularProgressIndicator())
+          : GuestAccessOverlay(
+              isGuest: _isGuest,
+              message: 'Login untuk melihat booking kamu.',
+              child: FutureBuilder<List<BookingModel>>(
+                future: _historyFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    final error = snapshot.error;
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              error is ApiException ? error.message : 'Gagal memuat data: $error',
+                              textAlign: TextAlign.center,
+                            ),
+                            TextButton.icon(
+                              onPressed: () => _refreshData(force: true),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('Coba Lagi'),
+                            ),
+                          ],
                         ),
-                      );
-                    }
-                    final all = snapshot.data ?? const <BookingModel>[];
-                    if (all.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          "Belum ada data booking, booking sekarang!!",
-                        ),
-                      );
-                    }
-
-                    final active = all.where((b) => b.isActive).toList();
-                    final done = all.where((b) => !b.isActive).toList();
-
-                    return TabBarView(
-                      children: [_buildList(active), _buildList(done)],
+                      ),
                     );
-                  },
-                ),
+                  }
+                  final all = snapshot.data ?? const <BookingModel>[];
+                  final filtered = _filteredBookings(all);
+                  return Column(
+                    children: [
+                      SizedBox(
+                        height: 52,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                          scrollDirection: Axis.horizontal,
+                          itemBuilder: (_, i) {
+                            final f = filters[i];
+                            final selected = _statusFilter == f.$1;
+                            return ChoiceChip(
+                              label: Text(f.$2),
+                              selected: selected,
+                              onSelected: (_) => setState(() => _statusFilter = f.$1),
+                              selectedColor: const Color(0xFF168653),
+                              labelStyle: TextStyle(color: selected ? Colors.white : Colors.black87, fontWeight: FontWeight.w600),
+                              backgroundColor: Colors.white,
+                              side: BorderSide(color: selected ? const Color(0xFF168653) : Colors.grey.shade300),
+                            );
+                          },
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemCount: filters.length,
+                        ),
+                      ),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(child: Text(all.isEmpty ? "Belum ada data booking, booking sekarang!!" : "Tidak ada booking dengan status ini."))
+                            : RefreshIndicator(
+                                onRefresh: () => _refreshData(force: true),
+                                child: ListView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: filtered.length,
+                                  itemBuilder: (context, i) => _historyCard(filtered[i]),
+                                ),
+                              ),
+                      ),
+                    ],
+                  );
+                },
               ),
-      ),
-    );
-  }
-
-  Widget _buildList(List<BookingModel> bookings) {
-    if (bookings.isEmpty) {
-      return const Center(child: Text("Tidak ada transaksi di kategori ini."));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _refreshData,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: bookings.length,
-        itemBuilder: (context, i) => _historyCard(bookings[i]),
-      ),
+            ),
     );
   }
 
@@ -198,9 +260,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Widget _historyCard(BookingModel booking) {
     final statusColor = _statusColor(booking);
+    final status = booking.effectiveStatus.toLowerCase();
     final canPay = booking.isActive &&
         booking.paymentMethod.toLowerCase() == 'midtrans' &&
-        booking.effectiveStatus.toLowerCase() != 'lunas';
+        status != 'lunas';
+    final canCancel = booking.isActive && !booking.isCancelled && const {'menunggu', 'dp', 'pending'}.contains(status);
     final images = booking.galleryImages;
 
     return Container(
@@ -356,28 +420,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                   ),
+                ],
+                if (canCancel) ...[
                   const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: () => _cancelPayment(booking),
-                      icon: const Icon(
-                        Icons.cancel_outlined,
-                        size: 18,
-                        color: Colors.redAccent,
-                      ),
-                      label: const Text(
-                        "BATALKAN PEMBAYARAN",
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.redAccent,
-                        ),
-                      ),
+                      icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.redAccent),
+                      label: const Text("BATALKAN BOOKING", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
                       style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.redAccent, width: 1.2),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                        side: const BorderSide(color: Colors.redAccent, width: 1.2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
                   ),
@@ -408,6 +462,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                   ),
                 ],
+                if ((booking.paymentProofUrl ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _showPaymentProof(booking.paymentProofUrl!),
+                      icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF1D4ED8),
+                        side: const BorderSide(color: Color(0xFF1D4ED8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      label: const Text(
+                        "LIHAT BUKTI PEMBAYARAN",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
                 if (booking.canCreateMatch) ...[
                   const SizedBox(height: 8),
                   SizedBox(
@@ -421,7 +496,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 CreateMatchScreen(booking: booking),
                           ),
                         );
-                        if (created == true && mounted) _refreshData();
+                        if (created == true && mounted) _refreshData(force: true);
                       },
                       icon: const Icon(Icons.group_add_outlined, size: 18),
                       style: ElevatedButton.styleFrom(
@@ -726,7 +801,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
       );
       if (paid == true && mounted) {
-        _refreshData();
+        _refreshData(force: true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Pembayaran berhasil diverifikasi.'),
@@ -742,14 +817,56 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  void _showPaymentProof(String url) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Bukti Pembayaran',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: AppNetworkImage(
+                  url,
+                  fit: BoxFit.contain,
+                  fallbackIcon: Icons.receipt_long_outlined,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _cancelPayment(BookingModel booking) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Batalkan Pembayaran'),
+        title: const Text('Batalkan Booking'),
         content: Text(
-          'Batalkan pembayaran untuk booking ini? Status booking '
-          'akan menjadi Dibatalkan.',
+          'Batalkan booking ini? Status booking akan menjadi Dibatalkan.',
           style: TextStyle(color: Colors.grey.shade700),
         ),
         actions: [
@@ -776,7 +893,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       await ApiService.instance.cancelBooking(booking.id);
       if (!mounted) return;
-      _refreshData();
+      _refreshData(force: true);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Booking di ${booking.id} dibatalkan.'),
@@ -856,7 +973,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
         ),
       );
-      if (paid == true && mounted) _refreshData();
+      if (paid == true && mounted) _refreshData(force: true);
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -891,7 +1008,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     if (!mounted) return;
     if (ok) {
-      await _refreshData();
+      await _refreshData(force: true);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

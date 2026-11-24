@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Kamera digunakan untuk mengambil foto profil Anda.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID digunakan untuk masuk cepat dan verifikasi keamanan.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Lokasi digunakan untuk menampilkan venue olahraga terdekat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

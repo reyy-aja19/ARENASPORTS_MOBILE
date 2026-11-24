@@ -24,10 +24,20 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const List<String> _homeCarouselAssets = [
+    'assets/images/carousel/venue1.jpg',
+    'assets/images/carousel/venue2.jpg',
+    'assets/images/carousel/venue3.jpg',
+  ];
+
   List<FieldModel> allFields = [];
   List<FieldModel> filteredFields = [];
   String selectedCategory = "Semua";
   String searchQuery = '';
+  Timer? _searchDebounce;
+  final PageController _carouselController = PageController(viewportFraction: 0.92);
+  int _carouselIndex = 0;
+  Timer? _carouselTimer;
   Position? userPosition;
   String? userLocationName;
   String? locationError;
@@ -35,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isLoadingVenues = true;
   String? venuesError;
   int userPoints = 0;
+  String _userName = '';
 
   late Future<List<NotificationModel>> futureNotifications;
 
@@ -42,19 +53,27 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     futureNotifications = _loadNotifications();
+    _loadUserName();
     _loadVenues();
     _loadCurrentLocation();
     SessionService.revision.addListener(_onSessionChanged);
+    _startCarouselAutoPlay();
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _carouselTimer?.cancel();
+    _carouselController.dispose();
     SessionService.revision.removeListener(_onSessionChanged);
     super.dispose();
   }
 
   void _onSessionChanged() {
-    if (mounted) _loadPoints();
+    if (mounted) {
+      _loadPoints();
+      _loadUserName();
+    }
   }
 
   Future<void> _loadVenues() async {
@@ -75,8 +94,10 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         allFields = venues;
         isLoadingVenues = false;
+        _carouselIndex = 0;
         _applyFilters();
       });
+      _startCarouselAutoPlay();
       await _loadPoints();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -91,6 +112,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final points = await SessionService.points();
     if (!mounted) return;
     setState(() => userPoints = points);
+  }
+
+  Future<void> _loadUserName() async {
+    final user = await SessionService.currentUser();
+    if (!mounted) return;
+    final name = (user?['name'] ?? '').toString().trim();
+    setState(() => _userName = name);
   }
 
   Future<List<NotificationModel>> _loadNotifications() async {
@@ -201,6 +229,93 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _startCarouselAutoPlay() {
+    _carouselTimer?.cancel();
+    if (!mounted || _homeCarouselAssets.length < 2) return;
+    _carouselTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted || !_carouselController.hasClients) return;
+      final next = (_carouselIndex + 1) % _homeCarouselAssets.length;
+      _carouselController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  Widget _buildVenueCarousel() {
+    final items = _homeCarouselAssets;
+    return Column(
+      children: [
+        SizedBox(
+          height: 190,
+          child: PageView.builder(
+            controller: _carouselController,
+            itemCount: items.length,
+            onPageChanged: (index) {
+              if (!mounted) return;
+              setState(() => _carouselIndex = index);
+            },
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Image.asset(
+                        items[index],
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, error, stackTrace) => Container(
+                          color: const Color(0xFFE5E7EB),
+                          child: const Icon(
+                            Icons.image_not_supported_outlined,
+                            color: Color(0xFF9CA3AF),
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Colors.black.withValues(alpha: 0.45),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(items.length, (index) {
+            final active = index == _carouselIndex;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: active ? 18 : 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: active ? const Color(0xFF00A32A) : Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dataFields = filteredFields;
@@ -233,8 +348,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   onCategoryChanged: (category) {
                     setState(() {
                       selectedCategory = category;
+                      _carouselIndex = 0;
                       _applyFilters();
                     });
+                    if (_carouselController.hasClients) {
+                      _carouselController.jumpToPage(0);
+                    }
+                    _startCarouselAutoPlay();
                   },
                 ),
               ),
@@ -264,167 +384,67 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 )
               else ...[
-                if (dataFields.isNotEmpty) _buildFeaturedCard(dataFields.first),
+                _buildVenueCarousel(),
+                const SizedBox(height: 20),
                 if (dataFields.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 40),
                     child: Center(child: Text('Venue tidak ditemukan.')),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 16,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              userPosition == null
-                                  ? 'Semua Venue'
-                                  : 'Venue Terdekat',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                                color: Color(0xFF1E2A2B),
+                  )
+                else ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                userPosition == null
+                                    ? 'Semua Venue'
+                                    : 'Venue Terdekat',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Color(0xFF1E2A2B),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              userPosition == null
-                                  ? 'Temukan lapangan favoritmu'
-                                  : 'Diurutkan dari lokasi kamu',
-                              style: TextStyle(
-                                color: Colors.grey.shade600,
-                                fontSize: 12,
+                              const SizedBox(height: 3),
+                              Text(
+                                userPosition == null
+                                    ? 'Temukan lapangan favoritmu'
+                                    : 'Diurutkan dari lokasi kamu',
+                                style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontSize: 12,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: _openNearbyVenues,
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFF00A32A),
-                          textStyle: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                            ],
                           ),
                         ),
-                        icon: const Icon(Icons.near_me_outlined, size: 16),
-                        label: const Text('Lihat semua'),
-                      ),
-                    ],
-                  ),
-                ),
-                _buildHorizontalList(context, dataFields),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFeaturedCard(FieldModel field) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 18),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: InkWell(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => DetailScreen(field: field),
-              ),
-            ),
-            child: Stack(
-              children: [
-                SizedBox(
-                  height: 190,
-                  width: double.infinity,
-                  child: _fieldImage(
-                    field,
-                    width: double.infinity,
-                    height: 190,
-                  ),
-                ),
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.75),
-                          Colors.transparent,
-                        ],
-                      ),
+                        TextButton.icon(
+                          onPressed: _openNearbyVenues,
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF00A32A),
+                            textStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          icon: const Icon(Icons.near_me_outlined, size: 16),
+                          label: const Text('Lihat semua'),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 18,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: const Text(
-                          'Featured',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        field.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${field.type} • ${field.courtCount} lapangan • Rp ${field.price} / jam',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                  _buildHorizontalList(context, dataFields),
+                ],
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -733,17 +753,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
-                        'Hai, siap main hari ini?',
-                        style: TextStyle(
+                        _userName.isNotEmpty
+                            ? 'Hai, $_userName! Siap main hari ini?'
+                            : 'Hai, siap main hari ini?',
+                        style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                           fontSize: 18,
                         ),
                       ),
-                      SizedBox(height: 4),
-                      Text(
+                      const SizedBox(height: 4),
+                      const Text(
                         'Cari lapangan favoritmu dan booking sekarang',
                         style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
@@ -767,8 +789,16 @@ class _HomeScreenState extends State<HomeScreen> {
             onChanged: (value) {
               setState(() {
                 searchQuery = value;
-                _applyFilters();
               });
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+                if (mounted) _loadVenues();
+              });
+            },
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) {
+              _searchDebounce?.cancel();
+              _loadVenues();
             },
             decoration: InputDecoration(
               hintText: 'Cari venue...',
@@ -781,6 +811,43 @@ class _HomeScreenState extends State<HomeScreen> {
                 borderRadius: BorderRadius.circular(15),
                 borderSide: BorderSide.none,
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final category in const ['Semua', 'Futsal', 'Badminton'])
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(category),
+                      selected: selectedCategory == category,
+                      onSelected: (_) {
+                        setState(() {
+                          selectedCategory = category;
+                          _carouselIndex = 0;
+                          _applyFilters();
+                        });
+                        if (_carouselController.hasClients) {
+                          _carouselController.jumpToPage(0);
+                        }
+                        _startCarouselAutoPlay();
+                      },
+                      selectedColor: Colors.white,
+                      backgroundColor: Colors.white.withValues(alpha: 0.18),
+                      labelStyle: TextStyle(
+                        color: selectedCategory == category
+                            ? const Color(0xFF00A32A)
+                            : Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      side: BorderSide.none,
+                      showCheckmark: false,
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
