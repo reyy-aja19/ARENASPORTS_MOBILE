@@ -36,8 +36,8 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadUserData();
     _fetchChatInitial();
-    // Ambil pesan baru setiap 3 detik tanpa memuat ulang seluruh daftar.
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+    // Ambil pesan baru setiap 10 detik tanpa memuat ulang seluruh daftar.
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
       _fetchChatSilent();
     });
   }

@@ -18,6 +18,7 @@ class PointCenter extends StatefulWidget {
 class _PointCenterState extends State<PointCenter> {
   int _userPoints = 0;
   bool _isGuest = true;
+  bool _isRetrying = false;
   List<Map<String, dynamic>> _rewards = const [];
   List<Map<String, dynamic>> _redemptions = const [];
   String? _rewardsError;
@@ -87,6 +88,13 @@ class _PointCenterState extends State<PointCenter> {
       });
       await SessionService.updateUser({'points': data.points});
     } catch (e) {
+      // Retry sekali saat 429 (Too Many Attempts) — tombol refresh sebagai cadangan.
+      if (e is ApiException && e.statusCode == 429 && !_isRetrying) {
+        _isRetrying = true;
+        await Future<void>.delayed(const Duration(seconds: 6));
+        _isRetrying = false;
+        if (mounted) return _loadRewards();
+      }
       if (!mounted) return;
       setState(() {
         _rewardsError = e is ApiException

@@ -1,5 +1,5 @@
 class ApiConfig {
-  static const Duration requestTimeout = Duration(seconds: 20);
+  static const Duration requestTimeout = Duration(seconds: 60);
 
   /// Alamat root backend ARENASPORTS yang sudah di-deploy (Railway).
   ///

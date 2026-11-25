@@ -98,10 +98,13 @@ class ApiClient {
     try {
       final streamed = await request.send().timeout(ApiConfig.requestTimeout);
       final response = await http.Response.fromStream(streamed);
+      _logRequest(method, path, response.statusCode);
       return _decode(response, auth: auth);
     } on TimeoutException {
+      _logRequest(method, path, -1);
       throw const ApiException('Koneksi ke server timeout. Coba lagi.');
     } on http.ClientException {
+      _logRequest(method, path, -1);
       throw _connectionError();
     } catch (e) {
       if (_isConnectionError(e)) throw _connectionError();
@@ -139,6 +142,25 @@ class ApiClient {
         type == 'ClientException';
   }
 
+  /// Debug: log setiap request dari mobile — lihat apakah terjadi loop saat login.
+  void _logRequest(String method, String path, int statusCode) {
+    final trace = StackTrace.current
+        .toString()
+        .split('\n')
+        .where((line) => line.contains('.dart'))
+        .where((line) => !line.contains('api_client') && !line.contains('api_service.dart'))
+        .take(8)
+        .map((line) {
+          final m = RegExp(r'([^\s/\\]+\.dart):(\d+)').firstMatch(line);
+          return m != null ? '${m.group(1)}:${m.group(2)}' : '';
+        })
+        .where((s) => s.isNotEmpty)
+        .join(' <- ');
+    print(
+      '[ApiClient] ${DateTime.now().millisecondsSinceEpoch}ms $method $path -> $statusCode | $trace',
+    );
+  }
+
   Future<dynamic> _send(
     String method,
     String path, {
@@ -164,10 +186,13 @@ class ApiClient {
           .send(request)
           .timeout(ApiConfig.requestTimeout);
       final response = await http.Response.fromStream(streamed);
+      _logRequest(method, path, response.statusCode);
       return _decode(response, auth: auth);
     } on TimeoutException {
+      _logRequest(method, path, -1);
       throw const ApiException('Koneksi ke server timeout. Coba lagi.');
     } on http.ClientException {
+      _logRequest(method, path, -1);
       throw _connectionError();
     } catch (e) {
       if (_isConnectionError(e)) throw _connectionError();

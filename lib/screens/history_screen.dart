@@ -28,6 +28,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _isGuest = true;
   bool _isCheckingSession = true;
   bool _isRefreshing = false;
+  bool _isRetrying = false;
   DateTime? _lastRefreshAt;
   Timer? _statusTicker;
   String _statusFilter = 'semua';
@@ -111,7 +112,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
         });
       }
       await future;
-    } catch (_) {
+    } catch (e) {
+      // Retry sekali saat 429 (Too Many Attempts) — tombol "Coba Lagi" sebagai cadangan.
+      if (mounted &&
+          e is ApiException &&
+          e.statusCode == 429 &&
+          !_isRetrying) {
+        _isRetrying = true;
+        await Future<void>.delayed(const Duration(seconds: 6));
+        _isRetrying = false;
+        if (mounted) return _refreshData(force: force);
+      }
       // Error ditampilkan oleh FutureBuilder.
     } finally {
       _isRefreshing = false;

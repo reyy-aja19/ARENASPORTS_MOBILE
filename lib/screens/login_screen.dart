@@ -581,8 +581,8 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Image.network(
-            'https://img.icons8.com/color/48/000000/google-logo.png',
+          Image.asset(
+            'assets/images/logo_google.png',
             height: 24,
             width: 24,
           ),
