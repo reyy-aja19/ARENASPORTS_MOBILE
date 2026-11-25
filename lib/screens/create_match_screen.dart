@@ -22,6 +22,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   final _biayaController = TextEditingController();
   final _contactController = TextEditingController();
   final _descController = TextEditingController();
+  final _hostTeamNameController = TextEditingController();
+  final _hostMemberCountController = TextEditingController(text: '1');
 
   BookingModel? _selectedBooking;
   List<BookingModel> _eligibleBookings = const [];
@@ -30,6 +32,7 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
   String? _loadError;
   String _biayaMode = 'Gratis';
   String _level = 'Santai';
+  String _registrationType = 'Individu';
 
   final NumberFormat _idr = NumberFormat.currency(
     locale: 'id_ID',
@@ -57,6 +60,8 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
     _biayaController.dispose();
     _contactController.dispose();
     _descController.dispose();
+    _hostTeamNameController.dispose();
+    _hostMemberCountController.dispose();
     super.dispose();
   }
 
@@ -147,6 +152,27 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
       return;
     }
 
+    final isGroup = _registrationType == 'Kelompok';
+    if (isGroup && _hostTeamNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nama kelompok/tim host wajib diisi.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final hostMemberCount = int.tryParse(_hostMemberCountController.text.trim());
+    if (isGroup && (hostMemberCount == null || hostMemberCount < 1)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Jumlah anggota kelompok host tidak valid.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
     showAppLoadingDialog(context, message: 'Membuat open match...');
 
@@ -160,6 +186,9 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
         biayaPerPemain: biaya,
         level: _level,
         contactPhone: _contactController.text.trim(),
+        registrationType: _registrationType,
+        hostTeamName: isGroup ? _hostTeamNameController.text.trim() : null,
+        hostMemberCount: isGroup ? hostMemberCount : null,
       );
 
       if (!mounted) return;
@@ -327,9 +356,70 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
 
                     if (booking != null) _bookingPreview(booking),
 
+                    const Text('Jenis Pendaftaran', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: RadioListTile<String>(
+                            value: 'Individu',
+                            groupValue: _registrationType,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Individu / Cari Pemain'),
+                            onChanged: (value) => setState(() => _registrationType = value ?? 'Individu'),
+                          ),
+                        ),
+                        Expanded(
+                          child: RadioListTile<String>(
+                            value: 'Kelompok',
+                            groupValue: _registrationType,
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Kelompok / Cari Lawan'),
+                            onChanged: (value) => setState(() => _registrationType = value ?? 'Kelompok'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      _registrationType == 'Kelompok'
+                          ? '1 kelompok = 1 slot. Cocok untuk mencari lawan tim.'
+                          : '1 orang = 1 slot. Cocok untuk mencari pemain tambahan.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 12),
+
+                    if (_registrationType == 'Kelompok') ...[
+                      TextFormField(
+                        controller: _hostTeamNameController,
+                        decoration: _inputDecoration('Nama Tim/ Kelompok Host', Icons.flag_outlined),
+                        validator: (v) => _registrationType == 'Kelompok' && (v == null || v.trim().isEmpty)
+                            ? 'Nama kelompok host wajib diisi'
+                            : null,
+                      ),
+                      const SizedBox(height: 15),
+                      TextFormField(
+                        controller: _hostMemberCountController,
+                        keyboardType: TextInputType.number,
+                        decoration: _inputDecoration('Jumlah Anggota Tim Host', Icons.groups_2_outlined),
+                        validator: (v) {
+                          if (_registrationType != 'Kelompok') return null;
+                          final value = int.tryParse(v?.trim() ?? '');
+                          if (value == null || value < 1) return 'Masukkan jumlah anggota yang valid';
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 15),
+                    ],
+
                     TextFormField(
                       controller: _titleController,
-                      decoration: _inputDecoration('Judul Match', Icons.title, hint: 'Contoh: Fun futsal malam ini'),
+                      decoration: _inputDecoration(
+                        'Judul Match',
+                        Icons.title,
+                        hint: _registrationType == 'Kelompok'
+                            ? 'Contoh: Cari lawan futsal malam ini'
+                            : 'Contoh: Cari pemain futsal malam ini',
+                      ),
                       validator: (v) => v == null || v.trim().isEmpty ? 'Isi judul match terlebih dahulu' : null,
                     ),
                     const SizedBox(height: 15),
@@ -337,11 +427,16 @@ class _CreateMatchScreenState extends State<CreateMatchScreen> {
                     TextFormField(
                       controller: _jmlPemainController,
                       keyboardType: TextInputType.number,
-                      decoration: _inputDecoration('Target Total Pemain (termasuk host)', Icons.groups),
+                      decoration: _inputDecoration(
+                        _registrationType == 'Kelompok'
+                            ? 'Target Total Slot Kelompok (termasuk host)'
+                            : 'Target Total Pemain (termasuk host)',
+                        Icons.groups,
+                      ),
                       validator: (v) {
                         final value = int.tryParse(v?.trim() ?? '');
                         if (value == null) return 'Masukkan angka yang valid';
-                        if (value < 2 || value > 99) return 'Jumlah pemain harus 2 sampai 99';
+                        if (value < 2 || value > 99) return 'Jumlah slot harus 2 sampai 99';
                         return null;
                       },
                     ),

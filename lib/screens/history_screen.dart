@@ -12,7 +12,6 @@ import '../widgets/app_dialog.dart';
 import '../widgets/app_network_image.dart';
 import '../widgets/guest_access_overlay.dart';
 import '../widgets/photo_gallery_screen.dart';
-import 'create_match_screen.dart';
 import 'payment_screen.dart';
 import 'ticket_screen.dart';
 
@@ -28,7 +27,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   bool _isGuest = true;
   bool _isCheckingSession = true;
   bool _isRefreshing = false;
-  bool _isRetrying = false;
   DateTime? _lastRefreshAt;
   Timer? _statusTicker;
   String _statusFilter = 'semua';
@@ -40,9 +38,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _loadSession();
 
     MatchApi.dataRevision.addListener(_onMatchDataChanged);
-    SessionService.revision.addListener(_onSessionChanged);
+    SessionService.authRevision.addListener(_onSessionChanged);
 
-    _statusTicker = Timer.periodic(const Duration(seconds: 30), (_) {
+    _statusTicker = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted || _isGuest) return;
       setState(() {});
     });
@@ -80,7 +78,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void dispose() {
     MatchApi.dataRevision.removeListener(_onMatchDataChanged);
-    SessionService.revision.removeListener(_onSessionChanged);
+    SessionService.authRevision.removeListener(_onSessionChanged);
     _statusTicker?.cancel();
     super.dispose();
   }
@@ -112,18 +110,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         });
       }
       await future;
-    } catch (e) {
-      // Retry sekali saat 429 (Too Many Attempts) — tombol "Coba Lagi" sebagai cadangan.
-      if (mounted &&
-          e is ApiException &&
-          e.statusCode == 429 &&
-          !_isRetrying) {
-        _isRetrying = true;
-        await Future<void>.delayed(const Duration(seconds: 6));
-        _isRetrying = false;
-        if (mounted) return _refreshData(force: force);
-      }
-      // Error ditampilkan oleh FutureBuilder.
+    } catch (_) {
+      // Error ditampilkan oleh FutureBuilder. Jangan retry otomatis agar
+      // tidak memperparah rate limit.
     } finally {
       _isRefreshing = false;
     }
@@ -494,36 +483,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                   ),
                 ],
-                if (booking.canCreateMatch) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        final created = await Navigator.push<bool>(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                CreateMatchScreen(booking: booking),
-                          ),
-                        );
-                        if (created == true && mounted) _refreshData(force: true);
-                      },
-                      icon: const Icon(Icons.group_add_outlined, size: 18),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00A32A),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      label: const Text(
-                        "BUAT OPEN MATCH",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
+
                 if (booking.openMatchId != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),

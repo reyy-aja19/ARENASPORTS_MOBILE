@@ -335,7 +335,19 @@ class _RequestAdminScreenState extends State<RequestAdminScreen> {
         .toList();
   }
 
-  bool _hasDocument(String type) => _existingDocumentTypes.contains(type);
+  bool _hasDocument(String type) {
+    if (_existingDocumentTypes.contains(type)) return true;
+    // API dapat mengembalikan key atau label; dukung keduanya.
+    final label = _documentLabels[type];
+    if (label != null && _existingDocumentTypes.contains(label)) return true;
+    final key = _documentLabels.entries
+        .where((entry) => entry.value == type)
+        .map((entry) => entry.key)
+        .cast<String?>()
+        .firstWhere((_) => true, orElse: () => null);
+    if (key != null && _existingDocumentTypes.contains(key)) return true;
+    return false;
+  }
 
   String? _validate() {
     bool empty(TextEditingController controller) =>
@@ -625,6 +637,19 @@ class _RequestAdminScreenState extends State<RequestAdminScreen> {
               onChanged: (value) => setState(() => _relationship = value!),
             ),
             _textField(_identityNumber, 'Nomor Identitas (opsional)'),
+            _inlineDocumentPicker(
+              'identity_document',
+              required: true,
+              hint:
+                  'Unggah foto KTP/identitas pemohon yang jelas (JPG/PNG).',
+            ),
+            if (_relationship == 'manager' || _relationship == 'representative')
+              _inlineDocumentPicker(
+                'authorization_document',
+                required: true,
+                hint:
+                    'Unggah surat kuasa/penunjukan jika Anda bukan pemilik langsung.',
+              ),
             _textField(
               _ownerAddress,
               'Alamat Pemohon',
@@ -711,6 +736,15 @@ class _RequestAdminScreenState extends State<RequestAdminScreen> {
               items: const {'Milik Sendiri': 'Milik Sendiri', 'Sewa': 'Sewa'},
               onChanged: (value) => setState(() => _ownershipType = value!),
             ),
+            _inlineDocumentPicker(
+              _ownershipType == 'Sewa'
+                  ? 'lease_document'
+                  : 'ownership_document',
+              required: true,
+              hint: _ownershipType == 'Sewa'
+                  ? 'Unggah perjanjian sewa venue (JPG/PNG).'
+                  : 'Unggah bukti kepemilikan venue (JPG/PNG).',
+            ),
             _textField(_googleMapsUrl, 'Google Maps URL (opsional)'),
             _textField(_operatingHours, 'Jam Operasional', required: true),
             _textField(
@@ -734,21 +768,32 @@ class _RequestAdminScreenState extends State<RequestAdminScreen> {
               'Fasilitas (pisahkan dengan koma)',
               maxLines: 2,
             ),
+            const SizedBox(height: 4),
+            const Text(
+              'Foto Venue',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            _inlineDocumentPicker(
+              'venue_exterior_photo',
+              required: true,
+              hint: 'Foto tampak depan venue (JPG/PNG).',
+            ),
+            _inlineDocumentPicker(
+              'venue_interior_photo',
+              required: true,
+              hint: 'Foto bagian dalam/fasilitas utama venue (JPG/PNG).',
+            ),
           ],
         ),
         _sectionCard(
-          title: 'Dokumen Pendukung',
+          title: 'Dokumen Usaha Tambahan',
           children: [
-            _documentTile('identity_document', required: true),
-            if (_ownershipType == 'Sewa')
-              _documentTile('lease_document', required: true)
-            else
-              _documentTile('ownership_document', required: true),
-            if (_relationship == 'manager' || _relationship == 'representative')
-              _documentTile('authorization_document', required: true),
-            _documentTile('business_license'),
-            _documentTile('venue_exterior_photo', required: true),
-            _documentTile('venue_interior_photo', required: true),
+            _inlineDocumentPicker(
+              'business_license',
+              hint:
+                  'Opsional. Unggah NIB/izin usaha jika ada (JPG/PNG).',
+            ),
           ],
         ),
         _sectionCard(
@@ -848,43 +893,127 @@ class _RequestAdminScreenState extends State<RequestAdminScreen> {
     );
   }
 
-  Widget _documentTile(String key, {bool required = false}) {
+  Widget _inlineDocumentPicker(
+    String key, {
+    bool required = false,
+    String? hint,
+  }) {
     final label = _documentLabels[key] ?? key;
     final picked = _documents[key];
     final exists = _hasDocument(label);
+    final hasFile = picked != null || exists;
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        exists || picked != null ? Icons.task_alt : Icons.upload_file_outlined,
-        color: exists || picked != null ? const Color(0xFF00A32A) : Colors.grey,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: hasFile ? const Color(0xFFF3FBF5) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasFile ? const Color(0xFFB7E4C7) : const Color(0xFFE2E8F0),
+        ),
       ),
-      title: Text(label),
-      subtitle: Text(
-        picked != null
-            ? _fileName(picked)
-            : exists
-            ? 'Sudah diunggah sebelumnya'
-            : required
-            ? 'Wajib diunggah (JPG/PNG)'
-            : 'Opsional (JPG/PNG)',
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (picked != null)
-            IconButton(
-              tooltip: 'Hapus',
-              onPressed: () => setState(() => _documents.remove(key)),
-              icon: const Icon(Icons.close, color: Colors.redAccent),
+          Row(
+            children: [
+              Icon(
+                hasFile ? Icons.task_alt_rounded : Icons.upload_file_outlined,
+                color: hasFile ? const Color(0xFF00A32A) : Colors.grey.shade600,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  required ? '$label *' : label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1E2A2B),
+                  ),
+                ),
+              ),
+              if (required && !hasFile)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3E0),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Wajib',
+                    style: TextStyle(
+                      color: Color(0xFFE65100),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            picked != null
+                ? _fileName(picked)
+                : exists
+                ? 'Sudah diunggah sebelumnya. Kamu bisa ganti jika perlu.'
+                : hint ?? 'Unggah foto/scan jelas (JPG/PNG).',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade700,
+              height: 1.35,
             ),
-          IconButton(
-            tooltip: 'Pilih file',
-            onPressed: () => _chooseDocument(key),
-            icon: const Icon(
-              Icons.file_upload_outlined,
-              color: Color(0xFF00A32A),
+          ),
+          if (picked != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.file(
+                File(picked),
+                height: 120,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  height: 72,
+                  color: const Color(0xFFEFF3F6),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.image_outlined, color: Colors.grey),
+                ),
+              ),
             ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _chooseDocument(key),
+                icon: Icon(
+                  picked != null || exists
+                      ? Icons.change_circle_outlined
+                      : Icons.file_upload_outlined,
+                  size: 18,
+                ),
+                label: Text(picked != null || exists ? 'Ganti File' : 'Pilih File'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF00A32A),
+                  side: const BorderSide(color: Color(0xFFB7E4C7)),
+                ),
+              ),
+              if (picked != null)
+                TextButton.icon(
+                  onPressed: () => setState(() => _documents.remove(key)),
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Hapus'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red.shade600,
+                  ),
+                ),
+            ],
           ),
         ],
       ),

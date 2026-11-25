@@ -31,16 +31,17 @@ class PaymentScreen extends StatefulWidget {
   State<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _PaymentScreenState extends State<PaymentScreen> {
+class _PaymentScreenState extends State<PaymentScreen>
+    with WidgetsBindingObserver {
   late final WebViewController _controller;
   bool _isLoading = true;
   bool _isFetchingStatus = false;
   bool _paymentCompleted = false;
-  Timer? _statusTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
@@ -67,21 +68,24 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (widget.paymentUrl.isNotEmpty) {
       _controller.loadRequest(Uri.parse(widget.paymentUrl));
     }
-
-    // Status tetap dicek otomatis setiap 3 detik sampai pembayaran terdeteksi.
-    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _checkPaymentStatus(silent: true);
-    });
   }
 
   @override
   void dispose() {
-    _statusTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPaymentStatus(silent: true);
+    }
   }
 
   Future<void> _checkPaymentStatus({bool silent = false}) async {
     if (_paymentCompleted || _isFetchingStatus) return;
+    _isFetchingStatus = true;
 
     try {
       final status = await ApiService.instance.paymentStatus(widget.paymentId);
@@ -89,8 +93,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
       if (status.isPaid) {
         _paymentCompleted = true;
-        _statusTimer?.cancel();
-        Navigator.pop(context, true);
+        if (mounted) Navigator.pop(context, true);
         return;
       }
 
@@ -123,6 +126,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         );
       }
+    } finally {
+      _isFetchingStatus = false;
     }
   }
 

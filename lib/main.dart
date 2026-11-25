@@ -19,12 +19,23 @@ import 'screens/point_screen.dart';
 import 'screens/chatbot_screen.dart';
 import 'screens/success_auth_screen.dart';
 import 'widgets/areno_chatbot_button.dart';
+import 'widgets/app_lock_gate.dart';
+import 'app_navigator.dart';
+import 'firebase_options.dart';
+import 'services/push_notification_service.dart';
+import 'services/session_service.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 // Catatan: ScheduleScreen dan CheckoutScreen tidak di-import di sini
 // karena sudah tidak dipakai di routing statis (MaterialApp routes).
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await PushNotificationService.init();
+  if (await SessionService.isLoggedIn()) {
+    await PushNotificationService.registerTokenIfPossible();
+  }
   runApp(const SportsFieldApp());
 }
 
@@ -36,6 +47,10 @@ class SportsFieldApp extends StatelessWidget {
     return MaterialApp(
       title: 'ARENASPORTS',
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
+      builder: (context, child) => AppLockGate(
+        child: child ?? const SizedBox.shrink(),
+      ),
       theme: ThemeData(
         primaryColor: const Color(0xFF00A32A),
         scaffoldBackgroundColor: Colors.white,

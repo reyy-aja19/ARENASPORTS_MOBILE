@@ -300,7 +300,11 @@ class ApiService {
       '/bookings',
       query: {'scope': scope},
     );
-    return _bookingList(_map(data)['bookings']);
+    if (data is List) return _bookingList(data);
+    final map = _map(data);
+    return _bookingList(
+      map['bookings'] ?? map['data'] ?? map['items'] ?? const [],
+    );
   }
 
   Future<BookingModel> bookingDetail(int bookingId) async {
@@ -439,6 +443,32 @@ class ApiService {
     await ApiClient.instance.delete('/notifications');
   }
 
+  Future<void> registerDeviceToken({
+    required String token,
+    String? platform,
+    String? deviceName,
+  }) async {
+    await ApiClient.instance.post(
+      '/device-tokens',
+      body: {
+        'token': token,
+        'platform': ?platform,
+        'device_name': ?deviceName,
+      },
+    );
+  }
+
+  Future<void> unregisterDeviceToken(String token) async {
+    try {
+      await ApiClient.instance.delete(
+        '/device-tokens',
+        body: {'token': token},
+      );
+    } catch (_) {
+      // Token lokal tetap bisa dibersihkan meski server gagal.
+    }
+  }
+
   Future<Map<String, dynamic>> profile() async {
     final data = await ApiClient.instance.get('/profile');
     final map = _map(data);
@@ -550,7 +580,7 @@ class ApiService {
   }
 
   List<BookingModel> _bookingList(dynamic value) {
-    if (value is! List) return const [];
+    if (value is! List) return <BookingModel>[];
     return value
         .whereType<Map>()
         .map((item) => BookingModel.fromJson(Map<String, dynamic>.from(item)))

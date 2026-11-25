@@ -1,3 +1,90 @@
+class MatchParticipant {
+  final int id;
+  final String name;
+  final String role;
+  final bool isHost;
+  final String? teamName;
+  final int memberCount;
+
+  const MatchParticipant({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.isHost,
+    this.teamName,
+    this.memberCount = 1,
+  });
+
+  factory MatchParticipant.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value, {int fallback = 0}) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value?.toString() ?? '') ?? fallback;
+    }
+
+    bool parseBool(dynamic value) {
+      if (value is bool) return value;
+      if (value is num) return value != 0;
+      final normalized = value?.toString().toLowerCase().trim();
+      return normalized == 'true' || normalized == '1' || normalized == 'yes';
+    }
+
+    return MatchParticipant(
+      id: parseInt(json['id']),
+      name: json['name']?.toString() ?? 'Pemain',
+      role: json['role']?.toString() ?? 'Pemain',
+      isHost: parseBool(json['is_host']),
+      teamName: json['team_name']?.toString(),
+      memberCount: parseInt(json['member_count'], fallback: 1),
+    );
+  }
+}
+
+class MatchRegistration {
+  final int id;
+  final String displayName;
+  final String registrationType;
+  final String? teamName;
+  final int memberCount;
+  final String status;
+  final bool isMine;
+
+  const MatchRegistration({
+    required this.id,
+    required this.displayName,
+    required this.registrationType,
+    this.teamName,
+    this.memberCount = 1,
+    this.status = '',
+    this.isMine = false,
+  });
+
+  factory MatchRegistration.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value, {int fallback = 0}) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value?.toString() ?? '') ?? fallback;
+    }
+
+    bool parseBool(dynamic value) {
+      if (value is bool) return value;
+      if (value is num) return value != 0;
+      final normalized = value?.toString().toLowerCase().trim();
+      return normalized == 'true' || normalized == '1' || normalized == 'yes';
+    }
+
+    return MatchRegistration(
+      id: parseInt(json['id']),
+      displayName: json['display_name']?.toString() ?? json['team_name']?.toString() ?? 'Peserta',
+      registrationType: json['registration_type']?.toString() ?? 'Individu',
+      teamName: json['team_name']?.toString(),
+      memberCount: parseInt(json['member_count'], fallback: 1),
+      status: json['status']?.toString() ?? '',
+      isMine: parseBool(json['is_mine']),
+    );
+  }
+}
+
 class MatchModel {
   final int id;
   final int? bookingId;
@@ -9,8 +96,13 @@ class MatchModel {
   final int jumlahPemain;
   final int jumlahBergabung;
   final String status;
+  final String statusLabel;
+  final String statusTone;
   final String deskripsi;
   final String eventType;
+  final String registrationType;
+  final String capacityUnit;
+  final int remainingSlots;
   final String organizer;
   final int registrationFee;
   final String prize;
@@ -38,6 +130,8 @@ class MatchModel {
   final bool isFull;
   final bool chatAvailable;
   final bool hasEnded;
+  final List<MatchParticipant> participants;
+  final List<MatchRegistration> registrations;
 
   const MatchModel({
     required this.id,
@@ -50,8 +144,13 @@ class MatchModel {
     required this.jumlahPemain,
     required this.jumlahBergabung,
     required this.status,
+    this.statusLabel = '',
+    this.statusTone = 'open',
     required this.deskripsi,
     this.eventType = 'open_match',
+    this.registrationType = 'Individu',
+    this.capacityUnit = 'pemain',
+    this.remainingSlots = 0,
     this.organizer = 'Pengguna',
     this.registrationFee = 0,
     this.prize = '',
@@ -79,10 +178,21 @@ class MatchModel {
     this.isFull = false,
     this.chatAvailable = false,
     this.hasEnded = false,
+    this.participants = const [],
+    this.registrations = const [],
   });
 
   bool get isTournament => eventType.toLowerCase() == 'tournament';
   bool get isOpenMatch => !isTournament;
+  bool get isGroupMatch =>
+      registrationType.toLowerCase().contains('kelompok') ||
+      registrationType.toLowerCase().contains('tim');
+  String get modeLabel => isTournament
+      ? registrationType
+      : (isGroupMatch ? 'Cari Lawan' : 'Cari Pemain');
+  String get capacityLabel => capacityUnit.isNotEmpty
+      ? capacityUnit
+      : (isGroupMatch ? 'kelompok' : 'pemain');
 
   factory MatchModel.fromJson(Map<String, dynamic> json) {
     int parseInt(dynamic value, {int fallback = 0}) {
@@ -106,6 +216,20 @@ class MatchModel {
 
     final biaya = json['biaya_per_pemain'];
     final parsedBiaya = biaya == null ? null : parseInt(biaya);
+    final participantsRaw = json['participants'];
+    final participants = participantsRaw is List
+        ? participantsRaw
+            .whereType<Map>()
+            .map((item) => MatchParticipant.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <MatchParticipant>[];
+    final registrationsRaw = json['registrations'];
+    final registrations = registrationsRaw is List
+        ? registrationsRaw
+            .whereType<Map>()
+            .map((item) => MatchRegistration.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <MatchRegistration>[];
 
     return MatchModel(
       id: parseInt(json['id']),
@@ -115,11 +239,17 @@ class MatchModel {
       tanggal: json['tanggal']?.toString() ?? '-',
       startTime: json['start_time']?.toString() ?? '-',
       endTime: json['end_time']?.toString() ?? '-',
-      jumlahPemain: parseInt(json['jumlah_pemain']),
+      jumlahPemain: parseInt(json['jumlah_pemain'] ?? json['capacity']),
       jumlahBergabung: parseInt(json['jumlah_bergabung']),
       status: json['status']?.toString() ?? 'Open',
+      statusLabel: json['status_label']?.toString() ?? (json['status']?.toString() ?? 'Open'),
+      statusTone: json['status_tone']?.toString() ?? 'open',
       deskripsi: json['deskripsi']?.toString() ?? '',
       eventType: json['event_type']?.toString() ?? 'open_match',
+      registrationType:
+          json['registration_type']?.toString() ?? (json['mode']?.toString() ?? 'Individu'),
+      capacityUnit: json['capacity_unit']?.toString() ?? 'pemain',
+      remainingSlots: parseInt(json['remaining_slots'] ?? json['remaining_quota']),
       organizer: json['organizer']?.toString() ?? 'Pengguna',
       registrationFee: parseInt(json['registration_fee']),
       prize: json['prize']?.toString() ?? '',
@@ -150,6 +280,8 @@ class MatchModel {
       isFull: parseBool(json['is_full']),
       chatAvailable: parseBool(json['chat_available']),
       hasEnded: parseBool(json['has_ended']),
+      participants: participants,
+      registrations: registrations,
     );
   }
 }

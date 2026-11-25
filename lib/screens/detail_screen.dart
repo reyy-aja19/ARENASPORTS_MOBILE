@@ -442,7 +442,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildCourtRow(List<int> courtNumbers) {
     return SizedBox(
-      height: 380,
+      height: 320,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.only(right: 4),
@@ -460,11 +460,12 @@ class _DetailScreenState extends State<DetailScreen> {
     final imageUrl = court.imageUrl ?? _field.imageUrl;
     final isAvailable = court.status.toLowerCase() == 'tersedia';
     return SizedBox(
-      width: 220,
+      width: 230,
       child: Material(
         color: Colors.white,
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(18),
           side: const BorderSide(color: Color(0xFFE7ECE9)),
         ),
         clipBehavior: Clip.antiAlias,
@@ -473,149 +474,79 @@ class _DetailScreenState extends State<DetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                height: 72,
-                width: double.infinity,
-                child: AppNetworkImage(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  fallbackIcon: _field.type.toLowerCase().contains('badminton')
-                      ? Icons.sports_tennis
-                      : Icons.sports_soccer,
-                  fallbackIconColor: const Color(0xFF00A32A),
-                ),
+              Stack(
+                children: [
+                  SizedBox(
+                    height: 120,
+                    width: double.infinity,
+                    child: AppNetworkImage(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      fallbackIcon: _field.type.toLowerCase().contains('badminton')
+                          ? Icons.sports_tennis
+                          : Icons.sports_soccer,
+                      fallbackIconColor: const Color(0xFF00A32A),
+                    ),
+                  ),
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isAvailable ? const Color(0xFF00A32A) : Colors.orange.shade700,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        isAvailable ? 'Tersedia' : court.status,
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            court.displayName,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold,
-                            ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        court.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Rp ${court.price} / jam',
+                        style: const TextStyle(color: Color(0xFF008C35), fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        court.description.isNotEmpty ? court.description : 'Lapangan siap dibooking.',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey.shade700, height: 1.3, fontSize: 12),
+                      ),
+                      const Spacer(),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 36,
+                        child: ElevatedButton(
+                          onPressed: isAvailable ? () => _openCourtSchedule(court) : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF00A32A),
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: Colors.grey.shade300,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
                           ),
+                          child: const Text('Lihat Detail', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
-                        Text(
-                          'Rp ${court.price} / jam',
-                          style: const TextStyle(
-                            color: Color(0xFF008C35),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isAvailable ? 'Tersedia' : court.status,
-                      style: TextStyle(
-                        color: isAvailable
-                            ? const Color(0xFF00A32A)
-                            : Colors.orange.shade800,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      court.description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.grey.shade700,
-                        height: 1.2,
-                        fontSize: 12,
-                      ),
-                    ),
-                    if (court.facilities.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Fasilitas',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 11,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Wrap(
-                        spacing: 5,
-                        runSpacing: 5,
-                        children: [
-                          ...court.facilities.take(3).map(
-                                (facility) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEAF7EE),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    facility,
-                                    style: const TextStyle(
-                                      color: Color(0xFF25613C),
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          if (court.facilities.length > 3)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEAF7EE),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '+${court.facilities.length - 3}',
-                                style: const TextStyle(
-                                  color: Color(0xFF25613C),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                        ],
                       ),
                     ],
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 34,
-                      child: OutlinedButton.icon(
-                        onPressed: isAvailable
-                            ? () => _openCourtSchedule(court)
-                            : null,
-                        icon: const Icon(
-                          Icons.sports_soccer_outlined,
-                          size: 16,
-                        ),
-                        label: const Text(
-                          'Booking',
-                          style: TextStyle(fontSize: 13),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF008C35),
-                          side: const BorderSide(color: Color(0xFF00A32A)),
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ],

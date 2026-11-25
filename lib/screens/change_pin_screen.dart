@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../services/app_lock_service.dart';
 import '../services/pin_service.dart';
 
 class ChangePinScreen extends StatefulWidget {
@@ -42,6 +43,33 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
     super.dispose();
   }
 
+  Future<bool> _verifyOldPin(String pin) async {
+    final result = await PinService.instance.verifyPin(pin);
+    if (!mounted) return false;
+
+    switch (result.status) {
+      case PinVerifyStatus.success:
+        return true;
+      case PinVerifyStatus.lockedOut:
+        _show(
+          'Terlalu banyak percobaan. Tunggu ${result.retryAfter.inSeconds} detik.',
+          Colors.red,
+        );
+        return false;
+      case PinVerifyStatus.incorrect:
+        _show(
+          result.attemptsLeft > 0
+              ? 'PIN lama tidak sesuai. Sisa ${result.attemptsLeft} percobaan.'
+              : 'PIN lama tidak sesuai.',
+          Colors.red,
+        );
+        return false;
+      case PinVerifyStatus.notSet:
+        _show('PIN belum dibuat.', Colors.orange);
+        return false;
+    }
+  }
+
   Future<void> _save() async {
     final oldPin = _oldPinController.text.trim();
     final newPin = _newPinController.text.trim();
@@ -52,11 +80,8 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
         _show('Masukkan PIN lama Anda.', Colors.orange);
         return;
       }
-      final validOld = await PinService.instance.verifyPin(oldPin);
-      if (!validOld) {
-        _show('PIN lama tidak sesuai.', Colors.red);
-        return;
-      }
+      final validOld = await _verifyOldPin(oldPin);
+      if (!validOld) return;
     }
 
     if (newPin.length < 4 || newPin.length > 6) {
@@ -83,11 +108,58 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
     }
   }
 
+  Future<void> _removePin() async {
+    final oldPin = _oldPinController.text.trim();
+    if (oldPin.length < 4) {
+      _show('Masukkan PIN lama untuk menghapus PIN.', Colors.orange);
+      return;
+    }
+    if (!await _verifyOldPin(oldPin)) return;
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus PIN?'),
+        content: const Text(
+          'Kunci aplikasi dan biometrik akan dinonaktifkan. Anda dapat '
+          'membuat PIN baru kapan saja.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Hapus PIN'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _saving = true);
+    try {
+      await PinService.instance.clearAll();
+      await AppLockService.instance.refresh();
+      if (!mounted) return;
+      _show('PIN dan kunci aplikasi dihapus.', Colors.green);
+      Navigator.pop(context, true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   void _show(String message, Color color) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: color));
   }
 
   @override
@@ -122,8 +194,11 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
                   children: [
                     Text(
                       _hasPin
-                          ? 'Masukkan PIN lama, lalu buat PIN baru untuk keamanan akun Anda.'
-                          : 'Buat PIN 4-6 digit untuk keamanan dan quick login.',
+                          ? 'Masukkan PIN lama, lalu buat PIN baru. PIN hanya '
+                                'disimpan sebagai hash terenkripsi di perangkat '
+                                'Anda.'
+                          : 'Buat PIN 4-6 digit untuk mengunci aplikasi saat '
+                                'dibuka kembali.',
                       style: const TextStyle(color: Color(0xFF6B7280)),
                     ),
                     const SizedBox(height: 20),
@@ -159,6 +234,24 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
                         child: Text(_saving ? 'Menyimpan...' : 'Simpan PIN'),
                       ),
                     ),
+                    if (_hasPin) ...[
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: OutlinedButton(
+                          onPressed: _saving ? null : _removePin,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade600,
+                            side: BorderSide(color: Colors.red.shade200),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text('Hapus PIN & Nonaktifkan Kunci'),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

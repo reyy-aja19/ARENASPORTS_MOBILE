@@ -81,9 +81,11 @@ class _NearbyVenuesScreenState extends State<NearbyVenuesScreen> {
     });
 
     try {
-      final venues = await ApiService.instance.venues(
-        lat: _position?.latitude,
-        lng: _position?.longitude,
+      final venues = List<FieldModel>.from(
+        await ApiService.instance.venues(
+          lat: _position?.latitude,
+          lng: _position?.longitude,
+        ),
       );
       if (!mounted) return;
 

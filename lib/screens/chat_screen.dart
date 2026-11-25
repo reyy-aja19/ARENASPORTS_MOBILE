@@ -36,17 +36,10 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _loadUserData();
     _fetchChatInitial();
-    // Ambil pesan baru setiap 10 detik tanpa memuat ulang seluruh daftar.
-    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      _fetchChatSilent();
-    });
   }
-
-  Timer? _pollingTimer;
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -74,7 +67,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _fetchChatSilent() async {
+  Future<void> _refreshChat() async {
     if (_isLoading) return;
     try {
       final lastId = _messages.isEmpty
@@ -87,7 +80,8 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       _scrollToBottom();
     } catch (e) {
-      debugPrint("Gagal sinkronisasi chat otomatis: $e");
+      if (!mounted) return;
+      _showSnackBar('Gagal memuat pesan baru: $e', Colors.red);
     }
   }
 
@@ -113,7 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() => _isSending = false);
     if (success) {
-      await _fetchChatSilent();
+      await _refreshChat();
     } else {
       _showSnackBar("Pesan gagal dikirim", Colors.red);
     }
@@ -135,7 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     setState(() => _isSending = false);
     if (success) {
-      await _fetchChatSilent();
+      await _refreshChat();
     } else {
       _showSnackBar("Gambar gagal dikirim", Colors.red);
     }
@@ -171,6 +165,13 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Muat pesan baru',
+            onPressed: _refreshChat,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
         backgroundColor: Colors.white,
         elevation: 1,
         iconTheme: const IconThemeData(color: Colors.black),
@@ -183,15 +184,24 @@ class _ChatScreenState extends State<ChatScreen> {
           : Column(
               children: [
                 Expanded(
-                  child: _messages.isEmpty
-                      ? const Center(
-                          child: Text(
-                            "Belum ada obrolan.\nYuk, sapa anggota match lainnya! 👋",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        )
-                      : ListView.builder(
+                  child: RefreshIndicator(
+                    onRefresh: _refreshChat,
+                    color: const Color(0xFF00A32A),
+                    child: _messages.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: const [
+                              SizedBox(height: 120),
+                              Center(
+                                child: Text(
+                                  "Belum ada obrolan.\nYuk, sapa anggota match lainnya! 👋",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey),
+                                ),
+                              ),
+                            ],
+                          )
+                        : ListView.builder(
                           controller: _scrollController,
                           padding: const EdgeInsets.all(15),
                           itemCount: _messages.length,
@@ -216,6 +226,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             );
                           },
                         ),
+                  ),
                 ),
                 _buildChatInput(),
               ],

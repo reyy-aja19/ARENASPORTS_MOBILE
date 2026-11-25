@@ -1,14 +1,9 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../services/api_client.dart';
 import '../services/auth_api.dart';
-import '../widgets/slider_captcha.dart';
-import '../widgets/turnstile_widget.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -24,8 +19,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmController = TextEditingController();
   bool _isLoading = false;
-
-  bool _captchaVerified = false;
 
   Future<void> _handleRegister() async {
     final String name = _nameController.text.trim();
@@ -57,22 +50,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    if (!_captchaVerified) {
-      _showSnackBar(
-        "Selesaikan verifikasi puzzle terlebih dahulu.",
-        Colors.orange,
-      );
-      return;
-    }
-
-    // Selesaikan verifikasi CAPTCHA (Cloudflare Turnstile) — sama seperti web.
-    final turnstileToken = await showTurnstileDialog(
-      context: context,
-      title: 'Verifikasi CAPTCHA',
-    );
-    if (turnstileToken == null) return;
-    if (!mounted) return;
-
     setState(() => _isLoading = true);
     try {
       await AuthApi.register(
@@ -80,7 +57,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: email,
         phone: phone,
         password: password,
-        turnstileToken: turnstileToken,
       );
 
       if (mounted) {
@@ -235,13 +211,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             icon: Icons.lock_outline_rounded,
             isPassword: true,
           ),
-          const SizedBox(height: 16),
-          // Puzzle captcha milik mobile (tetap dipakai, ditambahkan Turnstile
-          // Cloudflare sejalan dengan web).
-          SliderCaptcha(
-            onVerificationChanged: (verified) =>
-                setState(() => _captchaVerified = verified),
-          ),
           const SizedBox(height: 20),
           _primaryButton(
             label: 'KONFIRMASI',
@@ -260,8 +229,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           const SizedBox(height: 14),
           _googleButton(),
-          const SizedBox(height: 10),
-          _appleButton(),
           const SizedBox(height: 10),
           _whatsAppButton(),
           const SizedBox(height: 26),
@@ -377,33 +344,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _appleButton() {
-    return OutlinedButton(
-      onPressed: _isLoading ? null : _handleAppleRegister,
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 52),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        side: const BorderSide(color: Color(0xFF111827)),
-        backgroundColor: Colors.white,
-      ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.apple, color: Colors.black, size: 24),
-          SizedBox(width: 10),
-          Text(
-            'Daftar Dengan Apple',
-            style: TextStyle(
-              color: Colors.black87,
-              fontWeight: FontWeight.bold,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _whatsAppButton() {
     return OutlinedButton(
       onPressed: _isLoading ? null : _handleWhatsAppRegister,
@@ -468,52 +408,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  // --- DAFTAR APPLE ---
-  Future<void> _handleAppleRegister() async {
-    if (!(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) {
-      _showSnackBar('Login Apple tidak didukung di perangkat ini.', Colors.orange);
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final credential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
-
-      final identityToken = credential.identityToken;
-      if (identityToken == null || identityToken.isEmpty) {
-        throw const ApiException('Token Apple tidak tersedia. Coba lagi.');
-      }
-
-      final givenName = (credential.givenName ?? '').trim();
-      final familyName = (credential.familyName ?? '').trim();
-      final fullName = [givenName, familyName].where((e) => e.isNotEmpty).join(' ');
-
-      await AuthApi.loginWithApple(
-        identityToken: identityToken,
-        authorizationCode: credential.authorizationCode,
-        email: credential.email,
-        name: fullName.isNotEmpty ? fullName : null,
-      );
-
-      if (mounted) Navigator.pushReplacementNamed(context, '/home');
-    } on SignInWithAppleAuthorizationException catch (e) {
-      if (e.code != AuthorizationErrorCode.canceled) {
-        _showSnackBar('Gagal Daftar Apple: ${e.message}', Colors.red);
-      }
-    } on ApiException catch (e) {
-      _showSnackBar(e.message, Colors.red);
-    } catch (e) {
-      _showSnackBar('Gagal Daftar Apple: $e', Colors.red);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
   // --- DAFTAR VIA WHATSAPP (untuk tujuan register) ---
   Future<void> _handleWhatsAppRegister() async {
     // 1. Minta nomor HP
@@ -546,22 +440,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     phoneController.dispose();
     if (phone == null || phone.isEmpty) return;
 
-    // 2. Selesaikan verifikasi CAPTCHA (Cloudflare Turnstile) — sama seperti web.
-    if (!mounted) return;
-    final turnstileToken = await showTurnstileDialog(
-      context: context,
-      title: 'Verifikasi CAPTCHA',
-    );
-    if (turnstileToken == null) return;
-    if (!mounted) return;
-
-    // 3. Minta OTP WhatsApp (untuk tujuan register)
+    // 2. Minta OTP WhatsApp (untuk tujuan register)
     setState(() => _isLoading = true);
     final data = await AuthApi.requestWhatsAppOtp(
       phone: phone,
       purpose: 'register',
       name: _nameController.text.trim(),
-      turnstileToken: turnstileToken,
     );
     final otpToken = data['otp_token']?.toString();
     if (otpToken == null || otpToken.isEmpty) {

@@ -1,4 +1,6 @@
 import 'api_client.dart';
+import 'pin_service.dart';
+import 'push_notification_service.dart';
 import 'session_service.dart';
 
 class AuthApi {
@@ -7,7 +9,6 @@ class AuthApi {
   static Future<Map<String, dynamic>> login({
     required String identifier,
     required String password,
-    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/login',
@@ -16,8 +17,6 @@ class AuthApi {
         'identifier': identifier.trim(),
         'password': password,
         'device_name': _deviceName,
-        if (turnstileToken != null && turnstileToken.isNotEmpty)
-          'cf-turnstile-response': turnstileToken,
       },
     );
     return _applySession(data);
@@ -28,7 +27,6 @@ class AuthApi {
     required String email,
     required String phone,
     required String password,
-    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/register',
@@ -40,8 +38,6 @@ class AuthApi {
         'password': password,
         'password_confirmation': password,
         'device_name': _deviceName,
-        if (turnstileToken != null && turnstileToken.isNotEmpty)
-          'cf-turnstile-response': turnstileToken,
       },
     );
     return _applySession(data);
@@ -56,32 +52,10 @@ class AuthApi {
     return _applySession(data);
   }
 
-  static Future<Map<String, dynamic>> loginWithApple({
-    required String identityToken,
-    String? authorizationCode,
-    String? email,
-    String? name,
-  }) async {
-    final data = await ApiClient.instance.post(
-      '/auth/apple',
-      auth: false,
-      body: {
-        'identity_token': identityToken,
-        if (authorizationCode != null && authorizationCode.isNotEmpty)
-          'authorization_code': authorizationCode,
-        if (email != null && email.isNotEmpty) 'email': email,
-        if (name != null && name.isNotEmpty) 'name': name,
-        'device_name': 'flutter-apple',
-      },
-    );
-    return _applySession(data);
-  }
-
   static Future<Map<String, dynamic>> requestWhatsAppOtp({
     required String phone,
     String purpose = 'login',
     String? name,
-    String? turnstileToken,
   }) async {
     final data = await ApiClient.instance.post(
       '/auth/whatsapp/request',
@@ -90,8 +64,6 @@ class AuthApi {
         'phone': phone.trim(),
         'purpose': purpose,
         if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
-        if (turnstileToken != null && turnstileToken.isNotEmpty)
-          'cf-turnstile-response': turnstileToken,
       },
     );
     return data is Map ? Map<String, dynamic>.from(data) : {};
@@ -143,10 +115,14 @@ class AuthApi {
   /// Hapus sesi lain milik akun ini (POST /auth/logout-all).
   static Future<void> logoutAll() async {
     try {
+      await PushNotificationService.unregisterCurrentToken();
+    } catch (_) {}
+    try {
       await ApiClient.instance.post('/auth/logout-all');
     } catch (_) {
       // Sesi lokal tetap dibersihkan meskipun server tidak dapat dihubungi.
     } finally {
+      await PinService.instance.clearAll();
       await SessionService.clear();
     }
   }
@@ -174,10 +150,14 @@ class AuthApi {
 
   static Future<void> logout() async {
     try {
+      await PushNotificationService.unregisterCurrentToken();
+    } catch (_) {}
+    try {
       await ApiClient.instance.post('/auth/logout');
     } catch (_) {
       // Sesi lokal tetap dibersihkan meskipun server tidak dapat dihubungi.
     } finally {
+      await PinService.instance.clearAll();
       await SessionService.clear();
     }
   }
@@ -192,6 +172,7 @@ class AuthApi {
     }
 
     await SessionService.save(token: token, user: user);
+    await PushNotificationService.registerTokenIfPossible();
     return user;
   }
 

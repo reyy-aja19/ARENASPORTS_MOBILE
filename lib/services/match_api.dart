@@ -92,6 +92,9 @@ class MatchApi {
     int? biayaPerPemain,
     String level = '',
     String contactPhone = '',
+    String registrationType = 'Individu',
+    String? hostTeamName,
+    int? hostMemberCount,
   }) async {
     final data = await ApiClient.instance.post(
       '/open-matches',
@@ -104,6 +107,10 @@ class MatchApi {
         'biaya_per_pemain': biayaPerPemain,
         'level': level,
         'contact_phone': contactPhone,
+        'registration_type': registrationType,
+        if (hostTeamName != null && hostTeamName.trim().isNotEmpty)
+          'host_team_name': hostTeamName.trim(),
+        if (hostMemberCount != null) 'host_member_count': hostMemberCount,
       },
     );
     final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
@@ -164,9 +171,20 @@ class MatchApi {
     }
   }
 
-  static Future<Map<String, dynamic>> joinMatch(int matchId) async {
+  static Future<Map<String, dynamic>> joinMatch(
+    int matchId, {
+    String? teamName,
+    int? memberCount,
+  }) async {
     try {
-      final data = await ApiClient.instance.post('/open-matches/$matchId/join');
+      final data = await ApiClient.instance.post(
+        '/open-matches/$matchId/join',
+        body: {
+          if (teamName != null && teamName.trim().isNotEmpty)
+            'team_name': teamName.trim(),
+          if (memberCount != null) 'member_count': memberCount,
+        },
+      );
       final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
       bumpData();
       return {

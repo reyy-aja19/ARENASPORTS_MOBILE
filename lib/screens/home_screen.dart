@@ -34,6 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<FieldModel> filteredFields = [];
   String selectedCategory = "Semua";
   String searchQuery = '';
+  String _sortBy = 'nearest';
   Timer? _searchDebounce;
   final PageController _carouselController = PageController(viewportFraction: 0.92);
   int _carouselIndex = 0;
@@ -56,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadUserName();
     _loadVenues();
     _loadCurrentLocation();
-    SessionService.revision.addListener(_onSessionChanged);
+    SessionService.dataRevision.addListener(_onSessionChanged);
     _startCarouselAutoPlay();
   }
 
@@ -65,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _searchDebounce?.cancel();
     _carouselTimer?.cancel();
     _carouselController.dispose();
-    SessionService.revision.removeListener(_onSessionChanged);
+    SessionService.dataRevision.removeListener(_onSessionChanged);
     super.dispose();
   }
 
@@ -124,9 +125,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<List<NotificationModel>> _loadNotifications() async {
     final userId = await SessionService.userId();
     if (userId == null) return const [];
-    // Aktifkan notifikasi sistem (inbox Firestore) untuk user ini.
-    PushNotificationService.listenToInbox(userId);
-    PushNotificationService.saveTokenForUser(userId);
+    // Pastikan token FCM perangkat ini terdaftar ke backend.
+    await PushNotificationService.registerTokenIfPossible();
     try {
       final page = await ApiService.instance.notifications(perPage: 20);
       return page.notifications;
@@ -195,8 +195,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  int _priceValue(FieldModel field) => field.price;
+
   void _applyFilters() {
-    final query = searchQuery.toLowerCase();
+    final query = searchQuery.toLowerCase().trim();
     final fields = allFields.where((field) {
       final sports = field.sports.map((s) => s.toLowerCase()).toList();
       final matchesCategory =
@@ -206,19 +208,41 @@ class _HomeScreenState extends State<HomeScreen> {
       final haystack =
           '${field.name} ${field.city ?? ''} ${field.address ?? ''}'
               .toLowerCase();
-      final matchesQuery = haystack.contains(query);
+      final matchesQuery = query.isEmpty || haystack.contains(query);
       return matchesCategory && matchesQuery;
     }).toList();
 
-    if (userPosition != null || fields.any((f) => f.distanceKm != null)) {
-      fields.sort((a, b) {
-        final distanceA = _distanceTo(a);
-        final distanceB = _distanceTo(b);
-        if (distanceA == null) return distanceB == null ? 0 : 1;
-        if (distanceB == null) return -1;
-        return distanceA.compareTo(distanceB);
-      });
-    }
+    final effectiveSort =
+        (_sortBy == 'nearest' && userPosition == null) ? 'cheapest' : _sortBy;
+
+    fields.sort((a, b) {
+      int compareDistance() {
+        final da = _distanceTo(a);
+        final db = _distanceTo(b);
+        if (da == null && db == null) return 0;
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return da.compareTo(db);
+      }
+
+      switch (effectiveSort) {
+        case 'cheapest':
+          final cmp = _priceValue(a).compareTo(_priceValue(b));
+          return cmp != 0 ? cmp : compareDistance();
+        case 'expensive':
+          final cmp = _priceValue(b).compareTo(_priceValue(a));
+          return cmp != 0 ? cmp : compareDistance();
+        case 'name':
+          final cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          return cmp != 0 ? cmp : compareDistance();
+        case 'nearest':
+        default:
+          final cmp = compareDistance();
+          if (cmp != 0) return cmp;
+          return _priceValue(a).compareTo(_priceValue(b));
+      }
+    });
+
     filteredFields = fields;
   }
 
@@ -241,6 +265,36 @@ class _HomeScreenState extends State<HomeScreen> {
         curve: Curves.easeInOut,
       );
     });
+  }
+
+  String _sortLabel() {
+    switch (_sortBy) {
+      case 'cheapest':
+        return 'Venue Termurah';
+      case 'expensive':
+        return 'Venue Termahal';
+      case 'name':
+        return 'Venue A-Z';
+      case 'nearest':
+      default:
+        return userPosition == null ? 'Semua Venue' : 'Venue Terdekat';
+    }
+  }
+
+  String _sortSubtitle() {
+    switch (_sortBy) {
+      case 'cheapest':
+        return 'Diurutkan dari harga terendah';
+      case 'expensive':
+        return 'Diurutkan dari harga tertinggi';
+      case 'name':
+        return 'Diurutkan berdasarkan nama';
+      case 'nearest':
+      default:
+        return userPosition == null
+            ? 'Temukan lapangan favoritmu'
+            : 'Diurutkan dari lokasi kamu';
+    }
   }
 
   Widget _buildVenueCarousel() {
@@ -403,26 +457,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                userPosition == null
-                                    ? 'Semua Venue'
-                                    : 'Venue Terdekat',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                  color: Color(0xFF1E2A2B),
+                                                              Text(
+                                  _sortLabel(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: Color(0xFF1E2A2B),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                userPosition == null
-                                    ? 'Temukan lapangan favoritmu'
-                                    : 'Diurutkan dari lokasi kamu',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontSize: 12,
+                                const SizedBox(height: 3),
+                                Text(
+                                  _sortSubtitle(),
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -441,7 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
-                  _buildHorizontalList(context, dataFields),
+                  _buildVenueList(context, dataFields),
                 ],
               ],
             ],
@@ -451,39 +501,36 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHorizontalList(BuildContext context, List<FieldModel> fields) {
-    return SizedBox(
-      height: 250,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: fields.length,
-        itemBuilder: (context, index) {
-          return Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: _cardVenue(context, fields[index]),
-          );
-        },
+  Widget _buildVenueList(BuildContext context, List<FieldModel> fields) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        children: [
+          for (final field in fields) ...[
+            _venueCard(context, field),
+            const SizedBox(height: 14),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _cardVenue(BuildContext context, FieldModel field) {
+  Widget _venueCard(BuildContext context, FieldModel field) {
+    final distance = _distanceTo(field);
     return InkWell(
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => DetailScreen(field: field)),
       ),
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: Container(
-        width: 220,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 12,
+              blurRadius: 14,
               offset: const Offset(0, 5),
             ),
           ],
@@ -492,85 +539,154 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _fieldImage(field, width: double.infinity, height: 108),
-            Padding(
-              padding: const EdgeInsets.all(11),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        field.type == 'Badminton'
-                            ? Icons.sports_tennis
-                            : Icons.sports_soccer,
-                        size: 14,
-                        color: const Color(0xFF00A32A),
-                      ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
+            Stack(
+              children: [
+                _fieldImage(field, width: double.infinity, height: 170),
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          field.type.toLowerCase().contains('badminton')
+                              ? Icons.sports_tennis
+                              : Icons.sports_soccer,
+                          size: 14,
+                          color: const Color(0xFF00A32A),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
                           field.type,
                           style: const TextStyle(
-                            color: Color(0xFF00A32A),
+                            color: Color(0xFF1E2A2B),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                      Text(
-                        '${field.courtCount} court',
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 7),
+                ),
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${field.courtCount} court',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
                     field.name,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      height: 1.15,
+                      fontSize: 16,
+                      height: 1.2,
                       color: Color(0xFF1E2A2B),
                     ),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    'Rp ${field.price} / jam',
-                    style: const TextStyle(
-                      color: Color(0xFF00A32A),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  if (_distanceTo(field) case final distance?) ...[
-                    const SizedBox(height: 4),
+                  if ((field.address ?? field.city ?? '').isNotEmpty)
                     Row(
                       children: [
-                        const Icon(
-                          Icons.near_me_outlined,
-                          size: 12,
-                          color: Color(0xFF00A32A),
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 14,
+                          color: Colors.grey.shade500,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          distance < 1000
-                              ? '${distance.round()} m dari kamu'
-                              : '${(distance / 1000).toStringAsFixed(1)} km dari kamu',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 11,
+                        Expanded(
+                          child: Text(
+                            field.address ?? field.city ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Rp ${field.price} / jam',
+                          style: const TextStyle(
+                            color: Color(0xFF00A32A),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                      if (distance != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEAF7EE),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.near_me_outlined,
+                                size: 13,
+                                color: Color(0xFF00A32A),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                distance < 1000
+                                    ? '${distance.round()} m'
+                                    : '${(distance / 1000).toStringAsFixed(1)} km',
+                                style: const TextStyle(
+                                  color: Color(0xFF25613C),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -579,7 +695,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
   Widget _fieldImage(
     FieldModel field, {
     required double width,
@@ -785,70 +900,81 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            onChanged: (value) {
-              setState(() {
-                searchQuery = value;
-              });
-              _searchDebounce?.cancel();
-              _searchDebounce = Timer(const Duration(milliseconds: 450), () {
-                if (mounted) _loadVenues();
-              });
-            },
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) {
-              _searchDebounce?.cancel();
-              _loadVenues();
-            },
-            decoration: InputDecoration(
-              hintText: 'Cari venue...',
-              hintStyle: const TextStyle(color: Colors.grey),
-              prefixIcon: const Icon(Icons.search, color: Colors.grey),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 0),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(15),
-                borderSide: BorderSide.none,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final category in const ['Semua', 'Futsal', 'Badminton'])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(category),
-                      selected: selectedCategory == category,
-                      onSelected: (_) {
-                        setState(() {
-                          selectedCategory = category;
-                          _carouselIndex = 0;
-                          _applyFilters();
-                        });
-                        if (_carouselController.hasClients) {
-                          _carouselController.jumpToPage(0);
-                        }
-                        _startCarouselAutoPlay();
-                      },
-                      selectedColor: Colors.white,
-                      backgroundColor: Colors.white.withValues(alpha: 0.18),
-                      labelStyle: TextStyle(
-                        color: selectedCategory == category
-                            ? const Color(0xFF00A32A)
-                            : Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      side: BorderSide.none,
-                      showCheckmark: false,
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  onChanged: (value) {
+                    setState(() {
+                      searchQuery = value;
+                    });
+                    _searchDebounce?.cancel();
+                    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+                      if (mounted) _loadVenues();
+                    });
+                  },
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) {
+                    _searchDebounce?.cancel();
+                    _loadVenues();
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Cari venue...',
+                    hintStyle: const TextStyle(color: Colors.grey),
+                    prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      borderSide: BorderSide.none,
                     ),
                   ),
-              ],
-            ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              PopupMenuButton<String>(
+                tooltip: 'Urutkan',
+                initialValue: _sortBy,
+                onSelected: (value) {
+                  setState(() {
+                    _sortBy = value;
+                    _applyFilters();
+                  });
+                },
+                itemBuilder: (context) => [
+                  for (final option in const [
+                    ('nearest', 'Terdekat'),
+                    ('cheapest', 'Termurah'),
+                    ('expensive', 'Termahal'),
+                    ('name', 'Nama A-Z'),
+                  ])
+                    PopupMenuItem<String>(
+                      value: option.$1,
+                      child: Row(
+                        children: [
+                          Icon(
+                            _sortBy == option.$1 ? Icons.radio_button_checked : Icons.radio_button_off,
+                            size: 18,
+                            color: _sortBy == option.$1 ? const Color(0xFF00A32A) : Colors.grey,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(option.$2),
+                        ],
+                      ),
+                    ),
+                ],
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: const Icon(Icons.tune_rounded, color: Color(0xFF00A32A)),
+                ),
+              ),
+            ],
           ),
         ],
       ),

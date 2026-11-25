@@ -46,8 +46,6 @@ dependencies:
   firebase_auth: ^5.0.0
   # Library khusus untuk tombol "Masuk Dengan Google" (image_e9c6e4.png)
   google_sign_in: ^6.2.1
-  # Sign in with Apple
-  sign_in_with_apple: ^6.1.4
 
   cloud_firestore: ^5.0.0
   

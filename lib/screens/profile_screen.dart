@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
 import '../services/api_service.dart';
+import '../services/app_lock_service.dart';
 import '../services/auth_api.dart';
 import '../services/pin_service.dart';
 import '../services/session_service.dart';
@@ -23,18 +24,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _isGuest = true;
   bool _isFetching = false;
   bool _biometricsEnabled = false;
+  bool _lockEnabled = false;
+  bool _hasPin = false;
+  int _lockTimeoutSeconds = PinService.defaultLockTimeoutSeconds;
   String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    SessionService.revision.addListener(_fetchUserProfile);
+    SessionService.authRevision.addListener(_fetchUserProfile);
     _fetchUserProfile();
   }
 
   @override
   void dispose() {
-    SessionService.revision.removeListener(_fetchUserProfile);
+    SessionService.authRevision.removeListener(_fetchUserProfile);
     super.dispose();
   }
 
@@ -65,22 +69,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoading = false;
         _loadError = null;
         _biometricsEnabled = false;
+        _lockEnabled = false;
+        _hasPin = false;
       });
       return;
     }
 
     final cached = await SessionService.currentUser();
     bool bioEnabled = false;
+    bool lockEnabled = false;
+    bool hasPin = false;
+    int lockTimeout = PinService.defaultLockTimeoutSeconds;
     try {
       bioEnabled = await PinService.instance
           .isBiometricEnabled()
           .timeout(const Duration(seconds: 3), onTimeout: () => false);
+      lockEnabled = await PinService.instance
+          .isLockEnabled()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+      hasPin = await PinService.instance
+          .hasPin()
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+      lockTimeout = await PinService.instance
+          .lockTimeoutSeconds()
+          .timeout(
+            const Duration(seconds: 3),
+            onTimeout: () => PinService.defaultLockTimeoutSeconds,
+          );
     } catch (_) {}
     if (!mounted) return;
     setState(() {
       if (cached != null) userData = cached;
       _isGuest = false;
       _biometricsEnabled = bioEnabled;
+      _lockEnabled = lockEnabled;
+      _hasPin = hasPin;
+      _lockTimeoutSeconds = lockTimeout;
       // Data cache langsung ditampilkan supaya halaman tidak berkedip kosong.
       _isLoading = false;
     });
@@ -130,6 +154,221 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
       });
       _showSnackBar('Gagal memuat profil: $e', Colors.red);
+    }
+  }
+
+  String get _lockTimeoutLabel {
+    switch (_lockTimeoutSeconds) {
+      case 0:
+        return 'Langsung saat aplikasi ditinggalkan';
+      case 60:
+        return 'Setelah 1 menit';
+      case 300:
+        return 'Setelah 5 menit';
+      case 900:
+        return 'Setelah 15 menit';
+      default:
+        return 'Setelah $_lockTimeoutSeconds detik';
+    }
+  }
+
+  Future<void> _refreshSecurityState() async {
+    final hasPin = await PinService.instance.hasPin();
+    final lockEnabled = await PinService.instance.isLockEnabled();
+    final bioEnabled = await PinService.instance.isBiometricEnabled();
+    final timeout = await PinService.instance.lockTimeoutSeconds();
+    if (!mounted) return;
+    setState(() {
+      _hasPin = hasPin;
+      _lockEnabled = lockEnabled;
+      _biometricsEnabled = bioEnabled;
+      _lockTimeoutSeconds = timeout;
+    });
+  }
+
+  Future<bool> _confirmWithPinOrBiometric() async {
+    if (_biometricsEnabled && await PinService.instance.canUseBiometrics()) {
+      final ok = await AppLockService.instance.authenticateBiometric(
+        reason: 'Verifikasi untuk mengubah keamanan aplikasi',
+      );
+      if (ok) return true;
+    }
+
+    if (!mounted) return false;
+    final controller = TextEditingController();
+    final pin = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Verifikasi PIN'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            labelText: 'Masukkan PIN',
+            counterText: '',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Verifikasi'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (pin == null || pin.isEmpty) return false;
+
+    final result = await PinService.instance.verifyPin(pin.trim());
+    switch (result.status) {
+      case PinVerifyStatus.success:
+        return true;
+      case PinVerifyStatus.lockedOut:
+        _showSnackBar(
+          'Terlalu banyak percobaan. Tunggu ${result.retryAfter.inSeconds} detik.',
+          Colors.red,
+        );
+        return false;
+      case PinVerifyStatus.incorrect:
+        _showSnackBar(
+          result.attemptsLeft > 0
+              ? 'PIN salah. Sisa ${result.attemptsLeft} percobaan.'
+              : 'PIN salah.',
+          Colors.red,
+        );
+        return false;
+      case PinVerifyStatus.notSet:
+        _showSnackBar('PIN belum dibuat.', Colors.orange);
+        return false;
+    }
+  }
+
+  Future<void> _toggleAppLock(bool value) async {
+    if (value) {
+      if (!_hasPin) {
+        final created = await Navigator.pushNamed(context, '/change-pin');
+        if (created != true || !mounted) return;
+      }
+      await PinService.instance.setLockEnabled(true);
+      await AppLockService.instance.refresh();
+      await _refreshSecurityState();
+      if (!mounted) return;
+      _showSnackBar(
+        'Kunci aplikasi diaktifkan.',
+        const Color(0xFF00A32A),
+      );
+      return;
+    }
+
+    final verified = await _confirmWithPinOrBiometric();
+    if (!verified) return;
+    await PinService.instance.setLockEnabled(false);
+    await AppLockService.instance.refresh();
+    await _refreshSecurityState();
+    if (!mounted) return;
+    _showSnackBar(
+      'Kunci aplikasi dinonaktifkan.',
+      const Color(0xFF00A32A),
+    );
+  }
+
+  Future<void> _toggleBiometrics(bool value) async {
+    if (value) {
+      if (!_lockEnabled || !_hasPin) {
+        _showSnackBar(
+          'Aktifkan kunci aplikasi dengan PIN terlebih dahulu.',
+          Colors.orange,
+        );
+        return;
+      }
+      final canUse = await PinService.instance.canUseBiometrics();
+      if (!canUse) {
+        _showSnackBar(
+          'Biometrik belum tersedia atau belum didaftarkan di perangkat ini.',
+          Colors.orange,
+        );
+        return;
+      }
+      final ok = await AppLockService.instance.authenticateBiometric(
+        reason: 'Verifikasi untuk mengaktifkan biometrik',
+      );
+      if (!ok) {
+        _showSnackBar('Verifikasi biometrik gagal.', Colors.red);
+        return;
+      }
+      await PinService.instance.setBiometricEnabled(true);
+      await _refreshSecurityState();
+      if (!mounted) return;
+      _showSnackBar(
+        'Biometrik diaktifkan. Data biometrik tetap di perangkat Anda.',
+        const Color(0xFF00A32A),
+      );
+      return;
+    }
+
+    await PinService.instance.setBiometricEnabled(false);
+    await _refreshSecurityState();
+    if (!mounted) return;
+    _showSnackBar('Biometrik dinonaktifkan.', const Color(0xFF00A32A));
+  }
+
+  Future<void> _selectLockTimeout() async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 6),
+              child: Text(
+                'Kunci aplikasi setelah',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            for (final option in const [0, 60, 300, 900])
+              RadioListTile<int>(
+                value: option,
+                groupValue: _lockTimeoutSeconds,
+                activeColor: const Color(0xFF00A32A),
+                title: Text(_timeoutLabelFor(option)),
+                onChanged: (value) => Navigator.pop(sheetContext, value),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (selected == null) return;
+    await PinService.instance.setLockTimeoutSeconds(selected);
+    if (!mounted) return;
+    setState(() => _lockTimeoutSeconds = selected);
+  }
+
+  String _timeoutLabelFor(int seconds) {
+    switch (seconds) {
+      case 0:
+        return 'Langsung saat aplikasi ditinggalkan';
+      case 60:
+        return 'Setelah 1 menit';
+      case 300:
+        return 'Setelah 5 menit';
+      case 900:
+        return 'Setelah 15 menit';
+      default:
+        return '$seconds detik';
     }
   }
 
@@ -419,56 +658,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           },
                         ),
                         _buildDivider(),
-                        _buildListTileItem(
+                        _buildListTileSwitch(
                           icon: Icons.lock_outline_rounded,
-                          title: 'Change Pin / Security',
+                          title: 'Kunci Aplikasi (PIN)',
+                          subtitle: _lockEnabled
+                              ? 'Aktif - PIN diminta saat aplikasi dibuka kembali'
+                              : 'Opsional. Aktifkan untuk mengunci aplikasi.',
+                          value: _lockEnabled,
+                          onChanged: _toggleAppLock,
+                        ),
+                        _buildDivider(),
+                        _buildListTileItem(
+                          icon: Icons.pin_outlined,
+                          title: _hasPin ? 'Ubah PIN' : 'Buat PIN',
+                          subtitle: _hasPin
+                              ? 'PIN disimpan sebagai hash terenkripsi di perangkat'
+                              : 'Buat PIN 4-6 digit untuk kunci aplikasi',
                           onTap: () async {
-                            await Navigator.pushNamed(context, '/change-pin');
+                            final result = await Navigator.pushNamed(
+                              context,
+                              '/change-pin',
+                            );
+                            if (result == true) await _refreshSecurityState();
                           },
                         ),
                         _buildDivider(),
                         _buildListTileSwitch(
                           icon: Icons.fingerprint_rounded,
-                          title: 'Enable Biometrics',
+                          title: 'Buka dengan Biometrik',
+                          subtitle: _biometricsEnabled
+                              ? 'Verifikasi dilakukan oleh sistem perangkat'
+                              : 'Butuh PIN aktif sebagai cadangan',
                           value: _biometricsEnabled,
-                          onChanged: (val) async {
-                            if (val) {
-                              final canUse = await PinService.instance.canUseBiometrics();
-                              if (!canUse) {
-                                _showSnackBar(
-                                  'Biometrik tidak tersedia di perangkat ini.',
-                                  Colors.orange,
-                                );
-                                return;
-                              }
-                              final ok = await PinService.instance.authenticate(
-                                reason: 'Verifikasi untuk mengaktifkan biometrik',
-                              );
-                              if (!ok) {
-                                _showSnackBar(
-                                  'Verifikasi biometrik gagal.',
-                                  Colors.red,
-                                );
-                                return;
-                              }
-                              await PinService.instance.setBiometricEnabled(true);
-                              if (!mounted) return;
-                              setState(() => _biometricsEnabled = true);
-                              _showSnackBar(
-                                'Fitur biometrik diaktifkan',
-                                const Color(0xFF00A32A),
-                              );
-                            } else {
-                              await PinService.instance.setBiometricEnabled(false);
-                              if (!mounted) return;
-                              setState(() => _biometricsEnabled = false);
-                              _showSnackBar(
-                                'Fitur biometrik dinonaktifkan',
-                                const Color(0xFF00A32A),
-                              );
-                            }
-                          },
+                          onChanged: _toggleBiometrics,
                         ),
+                        if (_lockEnabled) ...[
+                          _buildDivider(),
+                          _buildListTileItem(
+                            icon: Icons.timer_outlined,
+                            title: 'Kunci Setelah',
+                            subtitle: _lockTimeoutLabel,
+                            onTap: _selectLockTimeout,
+                          ),
+                        ],
                       ]),
 
                       const SizedBox(height: 24),
@@ -615,6 +847,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildListTileSwitch({
     required IconData icon,
     required String title,
+    String? subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
@@ -625,13 +858,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Icon(icon, size: 22, color: const Color(0xFF64748B)),
           const SizedBox(width: 16),
           Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF1E293B),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           Switch(
