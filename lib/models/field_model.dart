@@ -1,4 +1,82 @@
-import 'review_model.dart';
+﻿import 'review_model.dart';
+
+/// Informasi perusahaan atau pemilik venue (opsional / fleksibel).
+class VenueCompanyModel {
+  final String? name;
+  final String? type;
+  final String? nib;
+  final String? address;
+  final String? phone;
+  final String? description;
+
+  const VenueCompanyModel({
+    this.name,
+    this.type,
+    this.nib,
+    this.address,
+    this.phone,
+    this.description,
+  });
+
+  factory VenueCompanyModel.fromJson(Map<String, dynamic> json) {
+    return VenueCompanyModel(
+      name: _string(json['name']),
+      type: _string(json['type']),
+      nib: _string(json['nib']),
+      address: _string(json['address']),
+      phone: _string(json['phone']),
+      description: _string(json['description']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': type,
+    'nib': nib,
+    'address': address,
+    'phone': phone,
+    'description': description,
+  };
+}
+
+/// Aturan harga bertingkat berdasarkan hari dan jam (Court Price Rule).
+class CourtPriceRuleModel {
+  final String label;
+  final String dayType;
+  final List<String> days;
+  final String startTime;
+  final String endTime;
+  final int price;
+
+  const CourtPriceRuleModel({
+    required this.label,
+    required this.dayType,
+    this.days = const [],
+    required this.startTime,
+    required this.endTime,
+    required this.price,
+  });
+
+  factory CourtPriceRuleModel.fromJson(Map<String, dynamic> json) {
+    return CourtPriceRuleModel(
+      label: _string(json['label']) ?? 'Aturan Tarif',
+      dayType: _string(json['day_type']) ?? 'all',
+      days: _stringList(json['days']),
+      startTime: _string(json['start_time']) ?? '00:00',
+      endTime: _string(json['end_time']) ?? '23:59',
+      price: _int(json['price']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'label': label,
+    'day_type': dayType,
+    'days': days,
+    'start_time': startTime,
+    'end_time': endTime,
+    'price': price,
+  };
+}
 
 /// Venue beserta lapangan-lapangan yang tersedia di dalamnya.
 ///
@@ -14,6 +92,11 @@ class FieldModel {
   final List<String> galleryImages;
   final String? description;
   final String status;
+  final String operationalStatus;
+  final String? managedBy;
+  final String? companyName;
+  final String? entityType;
+  final VenueCompanyModel? company;
   final List<String> fasilitas;
   final double? latitude;
   final double? longitude;
@@ -25,6 +108,7 @@ class FieldModel {
   final double rating;
   final int reviewCount;
   final String? operatingHours;
+  final List<String> operatingDays;
   final String? googleMapsUrl;
   final String? slug;
 
@@ -38,8 +122,13 @@ class FieldModel {
     this.imageUrl,
     this.galleryImages = const [],
     this.description,
-    this.fasilitas = const [],
     this.status = 'Aktif',
+    this.operationalStatus = 'Beroperasi',
+    this.managedBy,
+    this.companyName,
+    this.entityType,
+    this.company,
+    this.fasilitas = const [],
     this.latitude,
     this.longitude,
     this.distanceKm,
@@ -50,9 +139,18 @@ class FieldModel {
     this.rating = 0,
     this.reviewCount = 0,
     this.operatingHours,
+    this.operatingDays = const [],
     this.googleMapsUrl,
     this.slug,
   });
+
+  /// True jika venue beroperasi secara normal.
+  bool get isOperational => operationalStatus.toLowerCase() == 'beroperasi';
+
+  /// Menampilkan pengelola jika tersedia.
+  String get displayManager => managedBy?.trim().isNotEmpty == true
+      ? managedBy!.trim()
+      : (companyName?.trim().isNotEmpty == true ? companyName!.trim() : 'Pengelola Venue');
 
   /// Semua foto venue: foto utama lalu seluruh foto galeri tanpa duplikat.
   List<String> get allImages {
@@ -126,6 +224,7 @@ class FieldModel {
   factory FieldModel.fromJson(Map<String, dynamic> json) {
     final sports = _stringList(json['sports']);
     final facilities = _stringList(json['facilities']);
+    final operatingDays = _stringList(json['operating_days']);
     final gallery = _stringList(json['gallery']);
     final photo = _string(json['photo_url']);
     final courts = (json['courts'] as List? ?? [])
@@ -143,7 +242,9 @@ class FieldModel {
 
     final type = sports.isNotEmpty
         ? sports.join(' • ')
-        : (courts.isNotEmpty ? courts.first.type : 'Umum');
+        : (courts.isNotEmpty ? courts.first.type : 'Futsal & Badminton');
+
+    final companyData = json['company'] is Map ? VenueCompanyModel.fromJson(Map<String, dynamic>.from(json['company'])) : null;
 
     return FieldModel(
       id: _int(json['id']),
@@ -158,6 +259,11 @@ class FieldModel {
           : (photo == null ? const [] : [photo]),
       description: _string(json['description']),
       status: _string(json['status']) ?? 'Aktif',
+      operationalStatus: _string(json['operational_status']) ?? 'Beroperasi',
+      managedBy: _string(json['managed_by']),
+      companyName: _string(json['company_name']),
+      entityType: _string(json['entity_type']),
+      company: companyData,
       fasilitas: facilities,
       latitude: _double(json['latitude']),
       longitude: _double(json['longitude']),
@@ -169,6 +275,7 @@ class FieldModel {
       rating: _double(json['rating']) ?? 0,
       reviewCount: _int(json['review_count']),
       operatingHours: _string(json['operating_hours']),
+      operatingDays: operatingDays,
       googleMapsUrl: _string(json['google_maps_url']),
       slug: _string(json['slug']),
     );
@@ -185,6 +292,11 @@ class FieldModel {
     'gallery': galleryImages,
     'description': description,
     'status': status,
+    'operational_status': operationalStatus,
+    'managed_by': managedBy,
+    'company_name': companyName,
+    'entity_type': entityType,
+    'company': company?.toJson(),
     'facilities': fasilitas,
     'latitude': latitude,
     'longitude': longitude,
@@ -196,6 +308,7 @@ class FieldModel {
     'rating': rating,
     'review_count': reviewCount,
     'operating_hours': operatingHours,
+    'operating_days': operatingDays,
     'google_maps_url': googleMapsUrl,
     'slug': slug,
   };
@@ -209,14 +322,21 @@ class CourtModel {
   final String? imageUrl;
   final List<String> galleryImages;
   final int price;
+  final int minPrice;
   final List<String> facilities;
+  final List<String> courtFacilities;
+  final String? areaType;
+  final String? floorType;
   final String description;
   final String status;
+  final String operationalStatus;
+  final bool isBookable;
   final double rating;
   final int reviewCount;
   final int? venueId;
   final String? venueName;
   final String? venueAddress;
+  final List<CourtPriceRuleModel> priceRules;
   final List<ReviewModel> reviews;
 
   const CourtModel({
@@ -227,18 +347,28 @@ class CourtModel {
     required this.imageUrl,
     this.galleryImages = const [],
     required this.price,
+    this.minPrice = 0,
     required this.facilities,
+    this.courtFacilities = const [],
+    this.areaType,
+    this.floorType,
     required this.description,
     this.status = 'Tersedia',
+    this.operationalStatus = 'Beroperasi',
+    this.isBookable = true,
     this.rating = 0,
     this.reviewCount = 0,
     this.venueId,
     this.venueName,
     this.venueAddress,
+    this.priceRules = const [],
     this.reviews = const [],
   });
 
   String get displayName => name.isNotEmpty ? name : 'Lapangan $number';
+
+  /// True jika beroperasi dan jadwal tersedia
+  bool get canBeBooked => isBookable && operationalStatus.toLowerCase() == 'beroperasi' && status.toLowerCase() == 'tersedia';
 
   /// Semua foto lapangan: foto utama lalu seluruh foto galeri tanpa duplikat.
   List<String> get allImages {
@@ -261,12 +391,22 @@ class CourtModel {
     int fallbackNumber = 1,
   }) {
     final facilities = _stringList(json['facilities']);
+    final courtFacilities = _stringList(json['court_facilities']);
     final gallery = _stringList(json['gallery_images']);
     final image = _string(json['image_url']);
     final reviews = (json['reviews'] as List? ?? [])
         .whereType<Map>()
         .map((item) => ReviewModel.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+
+    final priceRules = (json['price_rules'] as List? ?? [])
+        .whereType<Map>()
+        .map((item) => CourtPriceRuleModel.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+
+    final isBookableVal = json['is_bookable'] is bool
+        ? json['is_bookable'] as bool
+        : (json['status']?.toString().toLowerCase() == 'tersedia');
 
     return CourtModel(
       id: _int(json['id']),
@@ -276,15 +416,22 @@ class CourtModel {
       imageUrl: image ?? (gallery.isNotEmpty ? gallery.first : null),
       galleryImages: gallery,
       price: _int(json['price']),
+      minPrice: _int(json['min_price'] ?? json['price']),
       facilities: facilities,
+      courtFacilities: courtFacilities,
+      areaType: _string(json['area_type']),
+      floorType: _string(json['floor_type']),
       description:
           _string(json['description']) ?? 'Detail lapangan belum tersedia.',
       status: _string(json['status']) ?? 'Tersedia',
+      operationalStatus: _string(json['operational_status']) ?? 'Beroperasi',
+      isBookable: isBookableVal,
       rating: _double(json['rating_average'] ?? json['rating']) ?? 0,
       reviewCount: _int(json['review_count']),
       venueId: json['venue_id'] == null ? null : _int(json['venue_id']),
       venueName: _string(json['venue_name']),
-      venueAddress: _string(json['venue_address']),
+      venueAddress: _string(json['venue_address'] ?? json['location']),
+      priceRules: priceRules,
       reviews: reviews,
     );
   }
@@ -294,13 +441,20 @@ class CourtModel {
     'name': name,
     'type': type,
     'price': price,
+    'min_price': minPrice,
     'rating': rating,
     'review_count': reviewCount,
     'status': status,
+    'operational_status': operationalStatus,
+    'is_bookable': isBookable,
     'description': description,
     'image_url': imageUrl,
     'gallery_images': galleryImages,
     'facilities': facilities,
+    'court_facilities': courtFacilities,
+    'area_type': areaType,
+    'floor_type': floorType,
+    'price_rules': priceRules.map((e) => e.toJson()).toList(),
     'venue_id': venueId,
     'venue_name': venueName,
     'venue_address': venueAddress,

@@ -97,7 +97,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (_isGuest || _isRefreshing) return;
     final now = DateTime.now();
     final last = _lastRefreshAt;
-    if (!force && last != null && now.difference(last) < const Duration(seconds: 5)) {
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(seconds: 5)) {
       return;
     }
     _isRefreshing = true;
@@ -126,11 +128,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
         case 'menunggu':
           return s == 'menunggu' || s == 'dp' || s == 'pending';
         case 'lunas':
-          return s == 'lunas' || s == 'settlement' || s == 'capture' || s == 'success' || s == 'paid';
+          return s == 'lunas' ||
+              s == 'settlement' ||
+              s == 'capture' ||
+              s == 'success' ||
+              s == 'paid';
         case 'selesai':
           return s == 'selesai' || s == 'completed';
         case 'dibatalkan':
-          return s == 'dibatalkan' || s == 'batal' || s == 'expired' || s == 'cancelled';
+          return s == 'dibatalkan' ||
+              s == 'batal' ||
+              s == 'expired' ||
+              s == 'cancelled';
         default:
           return true;
       }
@@ -180,7 +189,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              error is ApiException ? error.message : 'Gagal memuat data: $error',
+                              error is ApiException
+                                  ? error.message
+                                  : 'Gagal memuat data: $error',
                               textAlign: TextAlign.center,
                             ),
                             TextButton.icon(
@@ -208,11 +219,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             return ChoiceChip(
                               label: Text(f.$2),
                               selected: selected,
-                              onSelected: (_) => setState(() => _statusFilter = f.$1),
-                              selectedColor: const Color(0xFF168653),
-                              labelStyle: TextStyle(color: selected ? Colors.white : Colors.black87, fontWeight: FontWeight.w600),
+                              onSelected: (_) =>
+                                  setState(() => _statusFilter = f.$1),
+                              selectedColor: const Color(0xFF00A32A),
+                              labelStyle: TextStyle(
+                                color: selected ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                              ),
                               backgroundColor: Colors.white,
-                              side: BorderSide(color: selected ? const Color(0xFF168653) : Colors.grey.shade300),
+                              side: BorderSide(
+                                color: selected
+                                    ? const Color(0xFF00A32A)
+                                    : Colors.grey.shade300,
+                              ),
                             );
                           },
                           separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -221,13 +240,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                       Expanded(
                         child: filtered.isEmpty
-                            ? Center(child: Text(all.isEmpty ? "Belum ada data booking, booking sekarang!!" : "Tidak ada booking dengan status ini."))
+                            ? Center(
+                                child: Text(
+                                  all.isEmpty
+                                      ? "Belum ada data booking, booking sekarang!!"
+                                      : "Tidak ada booking dengan status ini.",
+                                ),
+                              )
                             : RefreshIndicator(
                                 onRefresh: () => _refreshData(force: true),
                                 child: ListView.builder(
                                   padding: const EdgeInsets.all(16),
                                   itemCount: filtered.length,
-                                  itemBuilder: (context, i) => _historyCard(filtered[i]),
+                                  itemBuilder: (context, i) =>
+                                      _historyCard(filtered[i]),
                                 ),
                               ),
                       ),
@@ -246,7 +272,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       case 'dp':
         return Colors.amber;
       case 'lunas':
-        return Colors.green;
+        return const Color(0xFF00A32A);
       case 'selesai':
         return Colors.blueGrey;
       case 'dibatalkan':
@@ -261,10 +287,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _historyCard(BookingModel booking) {
     final statusColor = _statusColor(booking);
     final status = booking.effectiveStatus.toLowerCase();
-    final canPay = booking.isActive &&
+    final canPay =
+        booking.isActive &&
         booking.paymentMethod.toLowerCase() == 'midtrans' &&
         status != 'lunas';
-    final canCancel = booking.isActive && !booking.isCancelled && const {'menunggu', 'dp', 'pending'}.contains(status);
+    final canCancel =
+        booking.isActive &&
+        !booking.isCancelled &&
+        const {'menunggu', 'dp', 'pending'}.contains(status);
     final images = booking.galleryImages;
 
     return Container(
@@ -272,6 +302,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F2D22).withValues(alpha: 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -427,11 +465,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: () => _cancelPayment(booking),
-                      icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.redAccent),
-                      label: const Text("BATALKAN BOOKING", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
+                      icon: const Icon(
+                        Icons.cancel_outlined,
+                        size: 18,
+                        color: Colors.redAccent,
+                      ),
+                      label: const Text(
+                        "BATALKAN BOOKING",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.redAccent,
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.redAccent, width: 1.2),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        side: const BorderSide(
+                          color: Colors.redAccent,
+                          width: 1.2,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
@@ -467,7 +520,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _showPaymentProof(booking.paymentProofUrl!),
+                      onPressed: () =>
+                          _showPaymentProof(booking.paymentProofUrl!),
                       icon: const Icon(Icons.receipt_long_outlined, size: 18),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF1D4ED8),
@@ -660,13 +714,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             Icon(
                               Icons.fullscreen_rounded,
                               size: 14,
-                              color: Color(0xFF25613C),
+                              color: Color(0xFF00A32A),
                             ),
                             SizedBox(width: 4),
                             Text(
                               'Lihat semua',
                               style: TextStyle(
-                                color: Color(0xFF25613C),
+                                color: Color(0xFF00A32A),
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -776,7 +830,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Pembayaran berhasil diverifikasi.'),
-            backgroundColor: Colors.green,
+            backgroundColor: Color(0xFF00A32A),
           ),
         );
       }
@@ -803,7 +857,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   const Expanded(
                     child: Text(
                       'Bukti Pembayaran',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -984,7 +1041,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Terima kasih! Rating tersimpan.'),
-          backgroundColor: Colors.green,
+          backgroundColor: Color(0xFF00A32A),
         ),
       );
     } else {

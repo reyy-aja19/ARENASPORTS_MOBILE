@@ -101,13 +101,16 @@ class _DetailScreenState extends State<DetailScreen> {
 
     final images = galleryImages;
     final activeImageCount = images.isEmpty ? 1 : images.length;
-    final courtNumbers = _field.courts.isNotEmpty
-        ? List.generate(_field.courts.length, (index) => index + 1)
+    final courts = _field.courts;
+    final courtNumbers = courts.isNotEmpty
+        ? List.generate(courts.length, (index) => index + 1)
         : List.generate(_field.courtCount, (index) => index + 1);
     final firstRowCount = (courtNumbers.length + 1) ~/ 2;
     final secondRow = courtNumbers.length > firstRowCount
         ? courtNumbers.sublist(firstRowCount)
         : <int>[];
+
+    final isOperational = _field.isOperational;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F8),
@@ -116,10 +119,11 @@ class _DetailScreenState extends State<DetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 1. Foto Tampilan Depan Venue & Slider
               Stack(
                 children: [
                   SizedBox(
-                    height: 230,
+                    height: 240,
                     width: double.infinity,
                     child: images.isEmpty
                         ? Container(
@@ -129,6 +133,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                   ? Icons.sports_tennis
                                   : Icons.sports_soccer,
                               size: 50,
+                              color: Colors.white70,
                             ),
                           )
                         : PageView.builder(
@@ -155,6 +160,40 @@ class _DetailScreenState extends State<DetailScreen> {
                     child: CircleAvatar(
                       backgroundColor: Colors.white,
                       child: const BackButton(color: Colors.black),
+                    ),
+                  ),
+                  // Badge Status Operasional
+                  Positioned(
+                    top: 16,
+                    right: 15,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: isOperational ? const Color(0xFF00A32A) : Colors.amber.shade800,
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isOperational ? Icons.check_circle_outline : Icons.pause_circle_outline,
+                            size: 13,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _field.operationalStatus,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   if (images.length > 1)
@@ -204,7 +243,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                 ),
                                 SizedBox(width: 5),
                                 Text(
-                                  'Lihat semua foto',
+                                  'Lihat galeri',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
@@ -219,19 +258,24 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
                 ],
               ),
+
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // 2. Nama Venue
                     Text(
                       _field.name,
                       style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E2A2B),
                       ),
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 6),
+
+                    // 3. Jenis Olahraga (Futsal & Badminton) & Pengelola
                     Row(
                       children: [
                         Icon(
@@ -244,29 +288,87 @@ class _DetailScreenState extends State<DetailScreen> {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            '${_field.type} • ${_field.courtCount} lapangan',
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            '${_field.type} • ${_field.courtCount} Lapangan',
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
                     ),
-                    if (_field.address != null) ...[
-                      const SizedBox(height: 6),
+                    const SizedBox(height: 6),
+
+                    // Informasi Pengelola (Dikelola oleh)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.person_outline,
+                          size: 16,
+                          color: Color(0xFF008C35),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Dikelola oleh: ${_field.displayManager}',
+                            style: TextStyle(
+                              color: Colors.grey.shade800,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Informasi Perusahaan (Opsional, hanya jika tersedia)
+                    if (_field.companyName != null &&
+                        _field.companyName!.isNotEmpty &&
+                        _field.companyName != _field.name) ...[
+                      const SizedBox(height: 4),
                       Row(
                         children: [
                           const Icon(
-                            Icons.location_on_outlined,
+                            Icons.business_outlined,
                             size: 16,
                             color: Colors.grey,
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Badan Usaha: ${_field.companyName!}',
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    // Alamat Venue
+                    if (_field.address != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.location_on_outlined,
+                              size: 16,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               _field.address!,
                               style: TextStyle(
                                 color: Colors.grey.shade700,
                                 fontSize: 12,
+                                height: 1.3,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -275,7 +377,36 @@ class _DetailScreenState extends State<DetailScreen> {
                         ],
                       ),
                     ],
-                    const SizedBox(height: 8),
+
+                    // Jam Operasional & Hari
+                    if (_field.operatingHours != null && _field.operatingHours!.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.access_time_outlined,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Jam Buka: ${_field.operatingHours!}'
+                              '${_field.operatingDays.isNotEmpty ? " (${_field.operatingDays.join(', ')})" : ""}',
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 10),
+
+                    // Rating & Reviews
                     Row(
                       children: [
                         ...List.generate(5, (i) {
@@ -298,9 +429,8 @@ class _DetailScreenState extends State<DetailScreen> {
                         Expanded(
                           child: Text(
                             _field.reviewCount == 0
-                                ? 'Belum ada rating'
-                                : '${_field.rating.toStringAsFixed(1)} '
-                                    '(${_field.reviewCount} ulasan)',
+                                ? 'Belum ada ulasan'
+                                : '${_field.rating.toStringAsFixed(1)} (${_field.reviewCount} ulasan)',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -311,20 +441,33 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ],
                     ),
+
+                    // 4. Informasi / Deskripsi Venue
                     if (_field.description?.isNotEmpty == true) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 14),
+                      const Text(
+                        'Informasi Venue',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
                       Text(
                         _field.description!,
                         style: TextStyle(
                           color: Colors.grey.shade700,
                           height: 1.45,
+                          fontSize: 13,
                         ),
                       ),
                     ],
+
+                    // Fasilitas Venue
                     if (_field.fasilitas.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       const Text(
-                        'Fasilitas',
+                        'Fasilitas Venue',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -358,13 +501,15 @@ class _DetailScreenState extends State<DetailScreen> {
                             .toList(),
                       ),
                     ],
+
+                    // 5. Galeri Foto Venue (Thumbnail Slider)
                     if (images.isNotEmpty) ...[
                       const SizedBox(height: 22),
                       Row(
                         children: [
                           const Expanded(
                             child: Text(
-                              'Galeri Foto',
+                              'Galeri Foto Venue',
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -387,7 +532,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                       const SizedBox(height: 8),
                       SizedBox(
-                        height: 88,
+                        height: 90,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: images.length,
@@ -398,8 +543,8 @@ class _DetailScreenState extends State<DetailScreen> {
                               borderRadius: BorderRadius.circular(12),
                               child: AppNetworkImage(
                                 images[index],
-                                width: 118,
-                                height: 88,
+                                width: 120,
+                                height: 90,
                                 fit: BoxFit.cover,
                                 fallbackIcon: Icons.image_outlined,
                               ),
@@ -408,17 +553,43 @@ class _DetailScreenState extends State<DetailScreen> {
                         ),
                       ),
                     ],
+
+                    // 6. Daftar Lapangan Tersedia
                     const SizedBox(height: 26),
-                    const Text(
-                      'Pilih lapangan',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Pilih Lapangan',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        if (_field.price > 0)
+                          Text(
+                            'Mulai Rp ${_field.price}/jam',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF008C35),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     if (courtNumbers.isEmpty)
-                      const Text('Belum ada lapangan tersedia di venue ini.')
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Text('Belum ada lapangan yang ditambahkan di venue ini.'),
+                        ),
+                      )
                     else ...[
                       _buildCourtRow(
                         courtNumbers.sublist(0, firstRowCount),
@@ -428,6 +599,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         _buildCourtRow(secondRow),
                       ],
                     ],
+
                     const SizedBox(height: 28),
                     _buildReviewsSection(),
                   ],
@@ -442,7 +614,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildCourtRow(List<int> courtNumbers) {
     return SizedBox(
-      height: 320,
+      height: 340,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.only(right: 4),
@@ -458,9 +630,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildCourtCard(CourtModel court) {
     final imageUrl = court.imageUrl ?? _field.imageUrl;
-    final isAvailable = court.status.toLowerCase() == 'tersedia';
+    final isOperate = court.operationalStatus.toLowerCase() == 'beroperasi';
+    final canBook = court.canBeBooked;
+
     return SizedBox(
-      width: 230,
+      width: 240,
       child: Material(
         color: Colors.white,
         elevation: 0,
@@ -494,15 +668,33 @@ class _DetailScreenState extends State<DetailScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: isAvailable ? const Color(0xFF00A32A) : Colors.orange.shade700,
+                        color: !isOperate
+                            ? Colors.red.shade700
+                            : (canBook ? const Color(0xFF00A32A) : Colors.orange.shade700),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        isAvailable ? 'Tersedia' : court.status,
+                        !isOperate ? court.operationalStatus : (canBook ? 'Tersedia' : court.status),
                         style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
+                  if (court.areaType != null)
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.65),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          court.areaType!,
+                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
                 ],
               ),
               Expanded(
@@ -515,34 +707,49 @@ class _DetailScreenState extends State<DetailScreen> {
                         court.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                       ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Rp ${court.minPrice > 0 ? court.minPrice : court.price} / jam',
+                        style: const TextStyle(color: Color(0xFF008C35), fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      if (court.floorType != null && court.floorType!.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.layers_outlined, size: 12, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                'Lantai: ${court.floorType!}',
+                                style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Text(
-                        'Rp ${court.price} / jam',
-                        style: const TextStyle(color: Color(0xFF008C35), fontWeight: FontWeight.w700, fontSize: 12),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        court.description.isNotEmpty ? court.description : 'Lapangan siap dibooking.',
+                        court.description.isNotEmpty ? court.description : 'Lapangan siap digunakan.',
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.grey.shade700, height: 1.3, fontSize: 12),
+                        style: TextStyle(color: Colors.grey.shade700, height: 1.3, fontSize: 11),
                       ),
                       const Spacer(),
                       SizedBox(
                         width: double.infinity,
-                        height: 36,
+                        height: 34,
                         child: ElevatedButton(
-                          onPressed: isAvailable ? () => _openCourtSchedule(court) : null,
+                          onPressed: () => _openCourtSchedule(court),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF00A32A),
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: Colors.grey.shade300,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             elevation: 0,
                           ),
-                          child: const Text('Lihat Detail', style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: const Text('Detail & Jadwal', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                         ),
                       ),
                     ],
@@ -646,7 +853,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Belum ada ulasan untuk lapangan ini.',
+                  'Belum ada ulasan untuk venue ini.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontWeight: FontWeight.w600,

@@ -109,13 +109,17 @@ class _PointCenterState extends State<PointCenter> {
     final rewardId = (reward['id'] as num?)?.toInt() ?? 0;
     final rewardName = reward['title']?.toString() ?? 'Reward';
     final cost = (reward['points_required'] as num?)?.toInt() ?? 0;
+    final venueName = _rewardVenue(reward);
+    final redemptionInfo = venueName == null
+        ? 'Hadiah ini berlaku di semua venue ArenaSports.'
+        : 'Hadiah ini hanya dapat diambil dan diverifikasi di $venueName.';
 
     if (rewardId == 0) return;
 
     final confirmed = await showAppConfirmDialog(
       context,
       title: 'Tukar Reward',
-      message: 'Tukar $cost poin dengan "$rewardName"?',
+      message: 'Tukar $cost poin dengan "$rewardName"?\n\n$redemptionInfo',
       icon: Icons.card_giftcard,
       confirmLabel: 'Tukar',
       cancelLabel: 'Batal',
@@ -134,7 +138,7 @@ class _PointCenterState extends State<PointCenter> {
       });
       await _initializeScreen();
       if (!mounted) return;
-      _showSuccessDialog(rewardName, code);
+      _showSuccessDialog(rewardName, code, venueName);
     } catch (e) {
       if (mounted) {
         _showSnackBar(
@@ -147,7 +151,7 @@ class _PointCenterState extends State<PointCenter> {
     }
   }
 
-  void _showSuccessDialog(String rewardName, String? code) {
+  void _showSuccessDialog(String rewardName, String? code, String? venueName) {
     showAppInfoDialog(
       context,
       title: 'Penukaran Berhasil',
@@ -157,6 +161,8 @@ class _PointCenterState extends State<PointCenter> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          _venueBadge(venueName, expanded: true),
+          const SizedBox(height: 14),
           const Text(
             'KODE REDEEM KAMU',
             style: TextStyle(
@@ -193,7 +199,9 @@ class _PointCenterState extends State<PointCenter> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Tunjukkan kode atau QR ini ke Admin Venue.',
+              venueName == null
+                  ? 'Tunjukkan kode atau QR ini ke Admin Venue ArenaSports.'
+                  : 'Tunjukkan kode atau QR ini ke Admin $venueName.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
             ),
@@ -219,7 +227,6 @@ class _PointCenterState extends State<PointCenter> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Filter kategori dipindah ke Home.
-
         _buildPointsSummary(),
         const SizedBox(height: 18),
         Row(
@@ -238,6 +245,17 @@ class _PointCenterState extends State<PointCenter> {
           ],
         ),
         const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            'Reward dengan label venue hanya dapat diambil dan diverifikasi di venue tersebut.',
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.4,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ),
         if (_isGuest)
           _buildLoginPrompt()
         else if (_isLoading)
@@ -280,46 +298,60 @@ class _PointCenterState extends State<PointCenter> {
 
   Widget _buildPointsSummary() {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF00A32A), Color(0xFF13C24C)],
+          colors: [Color(0xFF0F766E), Color(0xFF00A32A)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF00A32A).withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: Colors.white.withOpacity(0.2),
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.monetization_on_rounded,
-              color: Color(0xFFFFE082),
-              size: 30,
+              Icons.stars_rounded,
+              color: Color(0xFFFDE047),
+              size: 36,
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'Saldo Poin Kamu',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   '$_userPoints Poin',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
                   ),
                 ),
+                const SizedBox(height: 2),
                 const Text(
                   'Dapatkan 10 poin setiap pembayaran berhasil.',
                   style: TextStyle(color: Colors.white70, fontSize: 11),
@@ -379,6 +411,8 @@ class _PointCenterState extends State<PointCenter> {
     final description = reward['description']?.toString();
     final imageUrl = reward['image_url']?.toString();
     final cost = (reward['points_required'] as num?)?.toInt() ?? 0;
+    final venueName = _rewardVenue(reward);
+    final provider = _rewardProvider(reward, venueName);
     final canRedeem = _userPoints >= cost;
 
     return Container(
@@ -386,17 +420,24 @@ class _PointCenterState extends State<PointCenter> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFF1F5F9)),
       ),
       child: Row(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             child: AppNetworkImage(
               imageUrl,
-              width: 56,
-              height: 56,
+              width: 60,
+              height: 60,
               fit: BoxFit.cover,
               errorWidget: _fallbackIcon(title),
             ),
@@ -451,7 +492,17 @@ class _PointCenterState extends State<PointCenter> {
                       ),
                     ),
                   ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _venueChip(venueName),
+                    if (provider != null) _providerChip(provider),
+                  ],
+                ),
+                const SizedBox(height: 6),
                 Text(
                   '$cost Poin',
                   style: const TextStyle(
@@ -506,10 +557,11 @@ class _PointCenterState extends State<PointCenter> {
     final code = redemption['qr_code']?.toString() ?? '-';
     final status = redemption['status']?.toString() ?? '-';
     final redeemedAt = redemption['redeemed_at']?.toString();
+    final venueName = _rewardVenue(redemption);
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () => _showRedemptionQr(title, code),
+      onTap: () => _showRedemptionQr(title, code, venueName),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
@@ -538,10 +590,41 @@ class _PointCenterState extends State<PointCenter> {
                       color: Color(0xFF007A2A),
                     ),
                   ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on_outlined,
+                        size: 13,
+                        color: venueName == null
+                            ? const Color(0xFF3552A4)
+                            : const Color(0xFF007A2A),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          venueName ?? 'Berlaku di semua venue ArenaSports',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   if (redeemedAt != null)
-                    Text(
-                      _formatDate(redeemedAt),
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        _formatDate(redeemedAt),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -549,7 +632,10 @@ class _PointCenterState extends State<PointCenter> {
             Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFFEAF7EE),
                     borderRadius: BorderRadius.circular(10),
@@ -573,7 +659,7 @@ class _PointCenterState extends State<PointCenter> {
     );
   }
 
-  void _showRedemptionQr(String title, String code) {
+  void _showRedemptionQr(String title, String code, String? venueName) {
     if (code.isEmpty || code == '-') return;
     showAppInfoDialog(
       context,
@@ -584,6 +670,8 @@ class _PointCenterState extends State<PointCenter> {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          _venueBadge(venueName, expanded: true),
+          const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
             decoration: BoxDecoration(
@@ -610,9 +698,132 @@ class _PointCenterState extends State<PointCenter> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Tunjukkan kode atau QR ini ke Admin Venue.',
+            venueName == null
+                ? 'Tunjukkan kode atau QR ini ke Admin Venue ArenaSports.'
+                : 'Tunjukkan kode atau QR ini ke Admin $venueName.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _rewardVenue(Map<String, dynamic> item) {
+    final raw = item['venue_name'] ?? item['venue'];
+    if (raw is Map) {
+      final nested = raw['name']?.toString().trim();
+      return (nested == null || nested.isEmpty) ? null : nested;
+    }
+    final value = raw?.toString().trim();
+    return (value == null || value.isEmpty) ? null : value;
+  }
+
+  String? _rewardProvider(Map<String, dynamic> reward, String? venueName) {
+    final provider = reward['provider']?.toString().trim();
+    if (provider == null || provider.isEmpty) return null;
+    if (venueName != null &&
+        provider.toLowerCase() == venueName.toLowerCase()) {
+      return null;
+    }
+    return provider;
+  }
+
+  Widget _venueChip(String? venueName) {
+    final isGlobal = venueName == null;
+    final accent = isGlobal ? const Color(0xFF3552A4) : const Color(0xFF007A2A);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isGlobal ? const Color(0xFFEEF4FF) : const Color(0xFFEAF7EE),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.location_on_outlined, size: 12, color: accent),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              isGlobal ? 'Global' : venueName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: accent,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _providerChip(String provider) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F5F4),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.storefront_outlined,
+            size: 12,
+            color: Color(0xFF5B6B63),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              'Penyedia: $provider',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF5B6B63),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _venueBadge(String? venueName, {bool expanded = false}) {
+    final isGlobal = venueName == null;
+    final accent = isGlobal ? const Color(0xFF3552A4) : const Color(0xFF007A2A);
+    return Container(
+      width: expanded ? double.infinity : null,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isGlobal ? const Color(0xFFEEF4FF) : const Color(0xFFEAF7EE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isGlobal ? const Color(0xFFC7D6F5) : const Color(0xFFBFE5CB),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.location_on_outlined, size: 15, color: accent),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              isGlobal
+                  ? 'Berlaku di semua venue ArenaSports'
+                  : 'Berlaku di $venueName',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: accent,
+              ),
+            ),
           ),
         ],
       ),
